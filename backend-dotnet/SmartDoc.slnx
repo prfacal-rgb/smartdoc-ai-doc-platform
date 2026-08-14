@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SmartDoc.Api/SmartDoc.Api.csproj" />
+    <Project Path="src/SmartDoc.Application/SmartDoc.Application.csproj" />
+    <Project Path="src/SmartDoc.Domain/SmartDoc.Domain.csproj" />
+    <Project Path="src/SmartDoc.Infrastructure/SmartDoc.Infrastructure.csproj" />
+    <Project Path="src/SmartDoc.Worker/SmartDoc.Worker.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SmartDoc.IntegrationTests/SmartDoc.IntegrationTests.csproj" />
+    <Project Path="tests/SmartDoc.UnitTests/SmartDoc.UnitTests.csproj" />
+  </Folder>
+</Solution>
