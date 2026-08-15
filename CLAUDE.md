@@ -254,9 +254,15 @@ Completado:
   OCR — limitación conocida del MVP) y `/chunk` (chunking por página, no cruza saltos de
   página — necesario para citas "archivo — página N"; `tiktoken cl100k_base` como estimador
   de tokens aproximado, no exacto; defaults `chunk_size_tokens=500`/`overlap_tokens=75`).
-  `ai-service` activado en `docker-compose.yml`. 11 tests (`pytest`), verificado además con
-  el contenedor Docker real corriendo (no solo el venv local). `/embed` pendiente de
-  confirmar conectividad del contenedor hacia `192.168.56.1:11434` (Ollama, máquina física).
+  `ai-service` activado en `docker-compose.yml`. Verificado además con el contenedor Docker
+  real corriendo (no solo el venv local).
+- **`/embed` con Ollama (ver ADR 0012):** conectividad confirmada del contenedor hacia
+  `192.168.56.1:11434` — `nomic-embed-text`, 768 dim, ~0.14-0.66s de respuesta (rápido; la
+  lentitud original era por los modelos de 14B/32B, no aplica a un modelo de embeddings
+  dedicado), soporta batch nativo. `EmbeddingProvider` (ABC) como equivalente Python de
+  `IEmbeddingProvider`; la respuesta incluye `model` explícitamente para que .NET complete
+  `DocumentChunk.EmbeddingModel` sin inferir nada. Fallas del proveedor devuelven `502`.
+  15 tests totales (`pytest`), verificado también con el contenedor real.
 
 Decisiones conscientes, no pendientes olvidados (ver ADR 0008):
 - **Auth (JWT) diferida a Fase 5.** El seed user actual es solo un insert de bootstrap, no
@@ -267,7 +273,7 @@ Decisiones conscientes, no pendientes olvidados (ver ADR 0008):
 - **Endpoints de `Users`** — deliberadamente fuera de scope hasta que se implemente auth
   (ver ADR 0007); no tienen caso de uso propio sin login real.
 
-Próximo paso: confirmar conectividad del contenedor `ai-service` hacia el Ollama de la
-máquina física, luego `/embed` (con `EmbeddingModel` en la respuesta), `DocumentChunks` +
-columna `vector(768)`, y el wiring real en `ProcessingJobProcessor` (reemplaza el placeholder
-de Fase 2) — que trae consigo el primer modo de falla real para el retry de `ProcessingJob`.
+Próximo paso: `DocumentChunks` (.NET) + columna `vector(768)`, y el wiring real en
+`ProcessingJobProcessor` (reemplaza el placeholder de Fase 2, llamando efectivamente a
+`/parse` → `/chunk` → `/embed`) — que trae consigo el primer modo de falla real para el
+retry de `ProcessingJob`.

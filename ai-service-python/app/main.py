@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
 from app.chunking.router import router as chunking_router
+from app.embeddings.router import router as embeddings_router
 from app.parsing.router import router as parsing_router
 
 app = FastAPI(
@@ -10,6 +11,7 @@ app = FastAPI(
 
 app.include_router(parsing_router)
 app.include_router(chunking_router)
+app.include_router(embeddings_router)
 
 
 @app.get("/health")
