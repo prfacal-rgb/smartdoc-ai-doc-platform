@@ -83,8 +83,9 @@ estable — no crear la carpeta antes de eso.
 2. **Async processing** — Job/Worker pattern. Upload devuelve `202 Accepted` sin esperar
    procesamiento. *(cerrada — ver "Estado actual")*
 3. **AI pipeline** — Servicio Python (parse/chunk/embed) + integración con .NET Worker.
-   *(en progreso — ver "Estado actual")*
+   *(cerrada — ver "Estado actual")*
 4. **RAG** — Retrieval + construcción de contexto + generación + citas.
+   *(en progreso — ver "Estado actual")*
 5. **Production polish** — Tests, logs, Docker Compose completo, manejo de errores,
    documentación. No agregar features nuevas en esta fase.
 6. **Frontend** (post-MVP) — a evaluar tecnología cuando llegue el momento.
@@ -186,7 +187,7 @@ señalarlo explícitamente en la respuesta y preguntar antes de implementar.
 
 ## Estado actual
 
-**Fases 1-2 cerradas (Backend foundation, Async processing). Fase actual: 3 — AI pipeline.**
+**Fases 1-3 cerradas (Backend foundation, Async processing, AI pipeline). Fase actual: 4 — RAG.**
 
 Completado:
 - Entorno de desarrollo operativo: Docker Desktop + WSL2, `docker compose up -d` levanta
@@ -263,6 +264,18 @@ Completado:
   `IEmbeddingProvider`; la respuesta incluye `model` explícitamente para que .NET complete
   `DocumentChunk.EmbeddingModel` sin inferir nada. Fallas del proveedor devuelven `502`.
   15 tests totales (`pytest`), verificado también con el contenedor real.
+- **`DocumentChunks` + wiring real del `ProcessingJobProcessor` (ver ADR 0013) — Fase 3
+  cerrada.** `Embedding` como `float[]` en el dominio (no `Pgvector.Vector` — Domain libre de
+  tipos de infraestructura, ADR 0005), conversión a `vector(768)` solo en la configuración
+  EF, con `ValueComparer` explícito. Dimensión (768) y `EmbeddingModel` validados como
+  invariantes de dominio en el constructor, no solo en el schema. `CREATE EXTENSION vector`
+  agregado a la migration (`Pgvector.EntityFrameworkCore` solo mapea tipos, no habilita la
+  extensión de Postgres — encontrado porque la primera corrida falló). `IAiServiceClient`
+  (puerto en Application, `HttpClient` tipado en Infrastructure, JSON snake_case). El
+  processor ahora hace `parse → chunk → embed → persistir chunks` real, reemplazando el
+  placeholder de Fase 2. 12 tests nuevos, incluyendo un end-to-end contra el stack completo
+  (Postgres + MinIO + ai-service + Ollama) con un PDF de fixture real. Verificado además con
+  un smoke test manual: Api real + Worker real procesando un documento subido de verdad.
 
 Decisiones conscientes, no pendientes olvidados (ver ADR 0008):
 - **Auth (JWT) diferida a Fase 5.** El seed user actual es solo un insert de bootstrap, no
@@ -273,7 +286,8 @@ Decisiones conscientes, no pendientes olvidados (ver ADR 0008):
 - **Endpoints de `Users`** — deliberadamente fuera de scope hasta que se implemente auth
   (ver ADR 0007); no tienen caso de uso propio sin login real.
 
-Próximo paso: `DocumentChunks` (.NET) + columna `vector(768)`, y el wiring real en
-`ProcessingJobProcessor` (reemplaza el placeholder de Fase 2, llamando efectivamente a
-`/parse` → `/chunk` → `/embed`) — que trae consigo el primer modo de falla real para el
-retry de `ProcessingJob`.
+Próximo paso: Fase 4 — RAG. Similarity search contra `pgvector` desde .NET (top-K
+configurable, PROJECT.md sugiere 5), construcción de contexto, `POST /generate` en Python
+(recién ahí se decide el LLM provider — ver PROJECT.md §3), y citas con página. También es
+el punto natural para retomar retry granular de `ProcessingJob` si aparecen fallos reales
+recurrentes.

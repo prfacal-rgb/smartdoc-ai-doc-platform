@@ -24,4 +24,10 @@
     <ProjectReference Include="..\..\src\SmartDoc.Api\SmartDoc.Api.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="Fixtures\sample.pdf">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>
