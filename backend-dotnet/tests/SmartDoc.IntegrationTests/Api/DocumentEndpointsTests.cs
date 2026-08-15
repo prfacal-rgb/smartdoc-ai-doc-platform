@@ -1,8 +1,10 @@
 using System.Net;
 using System.Net.Http.Json;
+using Amazon.S3;
 using FluentAssertions;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using SmartDoc.Api.Features.Documents;
 using SmartDoc.Domain.Entities;
 using SmartDoc.Domain.Enums;
@@ -12,9 +14,9 @@ namespace SmartDoc.IntegrationTests.Api;
 
 /// <summary>
 /// End-to-end tests against the real Minimal API pipeline (routing, validation, EF Core,
-/// Postgres) via WebApplicationFactory. Each test gets its own throwaway User created
+/// Postgres, MinIO) via WebApplicationFactory. Each test gets its own throwaway User created
 /// directly through SmartDocDbContext (there is no Users endpoint by design), and cleans up
-/// everything it created.
+/// everything it created (DB rows and any uploaded object storage content).
 /// </summary>
 public class DocumentEndpointsTests : IClassFixture<WebApplicationFactory<Program>>, IAsyncLifetime
 {
@@ -43,21 +45,45 @@ public class DocumentEndpointsTests : IClassFixture<WebApplicationFactory<Progra
     {
         await using var db = _dbFixture.CreateContext();
 
-        // ProcessingJobs cascade-delete with their Document (ADR — see ProcessingJobConfiguration),
-        // so removing the Documents is enough; no separate cleanup needed for the jobs.
-        db.Documents.RemoveRange(db.Documents.Where(d => d.UserId == _testUser.Id));
-        await db.SaveChangesAsync();
+        var documents = await db.Documents.Where(d => d.UserId == _testUser.Id).ToListAsync();
+        if (documents.Count > 0)
+        {
+            var s3Client = _factory.Services.GetRequiredService<IAmazonS3>();
+            foreach (var document in documents)
+            {
+                await s3Client.DeleteObjectAsync("smartdoc-documents", document.StoragePath);
+            }
+
+            // ProcessingJobs cascade-delete with their Document (see ProcessingJobConfiguration).
+            db.Documents.RemoveRange(documents);
+            await db.SaveChangesAsync();
+        }
 
         db.Users.Remove(_testUser);
         await db.SaveChangesAsync();
     }
 
+    private static MultipartFormDataContent CreatePdfUploadContent(
+        Guid userId, string fileName = "report.pdf", string contentType = "application/pdf", string text = "%PDF-1.4 fake content")
+    {
+        var content = new MultipartFormDataContent
+        {
+            { new StringContent(userId.ToString()), "userId" },
+        };
+
+        var fileContent = new ByteArrayContent(System.Text.Encoding.UTF8.GetBytes(text));
+        fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(contentType);
+        content.Add(fileContent, "file", fileName);
+
+        return content;
+    }
+
     [Fact]
     public async Task PostDocuments_WithValidRequest_ReturnsAcceptedWithLocationAndBody()
     {
-        var request = new CreateDocumentRequest(_testUser.Id, "report.pdf", "application/pdf", $"/storage/{Guid.NewGuid():N}.pdf");
+        using var content = CreatePdfUploadContent(_testUser.Id);
 
-        var response = await _client.PostAsJsonAsync("/api/documents", request);
+        var response = await _client.PostAsync("/api/documents", content);
 
         response.StatusCode.Should().Be(HttpStatusCode.Accepted);
         response.Headers.Location.Should().NotBeNull();
@@ -72,9 +98,9 @@ public class DocumentEndpointsTests : IClassFixture<WebApplicationFactory<Progra
     [Fact]
     public async Task PostDocuments_WithValidRequest_CreatesAPendingProcessingJob()
     {
-        var request = new CreateDocumentRequest(_testUser.Id, "report.pdf", "application/pdf", $"/storage/{Guid.NewGuid():N}.pdf");
+        using var content = CreatePdfUploadContent(_testUser.Id);
 
-        var response = await _client.PostAsJsonAsync("/api/documents", request);
+        var response = await _client.PostAsync("/api/documents", content);
         var created = await response.Content.ReadFromJsonAsync<DocumentResponse>();
 
         await using var db = _dbFixture.CreateContext();
@@ -85,11 +111,38 @@ public class DocumentEndpointsTests : IClassFixture<WebApplicationFactory<Progra
     }
 
     [Fact]
-    public async Task PostDocuments_WithEmptyFileName_ReturnsValidationProblem()
+    public async Task PostDocuments_WithValidRequest_SavesFileContentToObjectStorage()
     {
-        var request = new CreateDocumentRequest(_testUser.Id, "", "application/pdf", $"/storage/{Guid.NewGuid():N}.pdf");
+        const string fileText = "%PDF-1.4 smoke test content";
+        using var content = CreatePdfUploadContent(_testUser.Id, text: fileText);
 
-        var response = await _client.PostAsJsonAsync("/api/documents", request);
+        var response = await _client.PostAsync("/api/documents", content);
+        var created = await response.Content.ReadFromJsonAsync<DocumentResponse>();
+
+        var s3Client = _factory.Services.GetRequiredService<IAmazonS3>();
+        using var stored = await s3Client.GetObjectAsync("smartdoc-documents", created!.StoragePath);
+        using var reader = new StreamReader(stored.ResponseStream);
+        var storedText = await reader.ReadToEndAsync();
+
+        storedText.Should().Be(fileText);
+    }
+
+    [Fact]
+    public async Task PostDocuments_WithNonPdfContentType_ReturnsValidationProblem()
+    {
+        using var content = CreatePdfUploadContent(_testUser.Id, fileName: "report.txt", contentType: "text/plain");
+
+        var response = await _client.PostAsync("/api/documents", content);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task PostDocuments_WithEmptyFile_ReturnsValidationProblem()
+    {
+        using var content = CreatePdfUploadContent(_testUser.Id, text: "");
+
+        var response = await _client.PostAsync("/api/documents", content);
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
@@ -97,9 +150,9 @@ public class DocumentEndpointsTests : IClassFixture<WebApplicationFactory<Progra
     [Fact]
     public async Task PostDocuments_WithNonExistentUserId_ReturnsNotFound()
     {
-        var request = new CreateDocumentRequest(Guid.NewGuid(), "report.pdf", "application/pdf", $"/storage/{Guid.NewGuid():N}.pdf");
+        using var content = CreatePdfUploadContent(Guid.NewGuid());
 
-        var response = await _client.PostAsJsonAsync("/api/documents", request);
+        var response = await _client.PostAsync("/api/documents", content);
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
@@ -107,8 +160,8 @@ public class DocumentEndpointsTests : IClassFixture<WebApplicationFactory<Progra
     [Fact]
     public async Task GetDocumentById_AfterCreate_ReturnsSameDocument()
     {
-        var createRequest = new CreateDocumentRequest(_testUser.Id, "report.pdf", "application/pdf", $"/storage/{Guid.NewGuid():N}.pdf");
-        var createResponse = await _client.PostAsJsonAsync("/api/documents", createRequest);
+        using var content = CreatePdfUploadContent(_testUser.Id);
+        var createResponse = await _client.PostAsync("/api/documents", content);
         var created = await createResponse.Content.ReadFromJsonAsync<DocumentResponse>();
 
         var response = await _client.GetAsync($"/api/documents/{created!.Id}");
@@ -129,8 +182,8 @@ public class DocumentEndpointsTests : IClassFixture<WebApplicationFactory<Progra
     [Fact]
     public async Task GetDocuments_AfterCreate_ContainsCreatedDocument()
     {
-        var createRequest = new CreateDocumentRequest(_testUser.Id, "report.pdf", "application/pdf", $"/storage/{Guid.NewGuid():N}.pdf");
-        var createResponse = await _client.PostAsJsonAsync("/api/documents", createRequest);
+        using var content = CreatePdfUploadContent(_testUser.Id);
+        var createResponse = await _client.PostAsync("/api/documents", content);
         var created = await createResponse.Content.ReadFromJsonAsync<DocumentResponse>();
 
         var response = await _client.GetAsync("/api/documents");
@@ -143,8 +196,8 @@ public class DocumentEndpointsTests : IClassFixture<WebApplicationFactory<Progra
     [Fact]
     public async Task DeleteDocument_AfterCreate_RemovesItAndSubsequentGetReturnsNotFound()
     {
-        var createRequest = new CreateDocumentRequest(_testUser.Id, "report.pdf", "application/pdf", $"/storage/{Guid.NewGuid():N}.pdf");
-        var createResponse = await _client.PostAsJsonAsync("/api/documents", createRequest);
+        using var content = CreatePdfUploadContent(_testUser.Id);
+        var createResponse = await _client.PostAsync("/api/documents", content);
         var created = await createResponse.Content.ReadFromJsonAsync<DocumentResponse>();
 
         var deleteResponse = await _client.DeleteAsync($"/api/documents/{created!.Id}");
@@ -152,6 +205,21 @@ public class DocumentEndpointsTests : IClassFixture<WebApplicationFactory<Progra
 
         var getResponse = await _client.GetAsync($"/api/documents/{created.Id}");
         getResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task DeleteDocument_AfterCreate_AlsoRemovesFileFromObjectStorage()
+    {
+        using var content = CreatePdfUploadContent(_testUser.Id);
+        var createResponse = await _client.PostAsync("/api/documents", content);
+        var created = await createResponse.Content.ReadFromJsonAsync<DocumentResponse>();
+
+        await _client.DeleteAsync($"/api/documents/{created!.Id}");
+
+        var s3Client = _factory.Services.GetRequiredService<IAmazonS3>();
+        var act = async () => await s3Client.GetObjectAsync("smartdoc-documents", created.StoragePath);
+
+        await act.Should().ThrowAsync<AmazonS3Exception>();
     }
 
     [Fact]

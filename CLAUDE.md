@@ -129,12 +129,18 @@ Jwt__Secret=
 Jwt__SeedUserEmail=
 Jwt__SeedUserPassword=
 
+# MinIO (object storage — usado por docker-compose.yml y Minio:* en appsettings)
+MINIO_ROOT_USER=
+MINIO_ROOT_PASSWORD=
+MINIO_BUCKET_NAME=
+
 # Proveedores AI (abstraídos — completar según implementación elegida)
 LLM_PROVIDER=anthropic|openai|ollama
 EMBEDDING_PROVIDER=ollama|openai
 ANTHROPIC_API_KEY=
 OPENAI_API_KEY=
-OLLAMA_BASE_URL=
+OLLAMA_BASE_URL=  # embeddings: nomic-embed-text (768 dim) en Ollama corriendo en la
+                   # máquina física, no en la VM ni en Docker.
 
 # Python AI Service
 AI_SERVICE_PORT=
@@ -226,8 +232,24 @@ Completado:
   existe en el schema pero nada lo consume aún). Verificado end-to-end corriendo el Worker
   como proceso real. 10 tests nuevos (unit + integration); tests de integración ahora corren
   secuenciales (`DisableTestParallelization`) por compartir la misma DB real sin aislamiento.
-- File storage real (MinIO + `IFileStorage`) sigue diferido — recién hace falta en Fase 3,
-  cuando el Worker necesite leer el archivo para extraer texto.
+- **Fase 3 (en progreso) — object storage real (ver ADR 0010):** MinIO en
+  `docker-compose.yml`, puerto `IFileStorage` en `SmartDoc.Application` (primer código real
+  de esa capa) implementado con `MinioFileStorage`/`AWSSDK.S3` en Infrastructure, bucket
+  creado de forma idempotente al arrancar la Api. `POST /api/documents` pasa de JSON a
+  `multipart/form-data`, valida `ContentType == application/pdf` explícitamente, y sube el
+  archivo real. `DELETE /api/documents/{id}` ahora también borra el objeto de MinIO (gap
+  encontrado y corregido en esta misma ronda). Encontrado y resuelto: los endpoints con
+  `IFormFile` requieren `.DisableAntiforgery()` desde .NET 8 o explotan en runtime. 51 tests
+  totales, verificado además con la Api corriendo como proceso real.
+- Embeddings: confirmado Ollama corriendo en la máquina física (no la VM) con
+  `nomic-embed-text` (768 dimensiones) — ver `.env.example`. Sin auto-fallback entre
+  proveedores (contradice el scope guard de `CLAUDE.md`); si la latencia de Ollama resulta un
+  problema real, el swap a otro `IEmbeddingProvider` es solo implementación + config, sin
+  tocar el resto del código.
+- Pendiente al construir `DocumentChunks` (próximo paso): cada chunk guarda qué modelo lo
+  generó (`EmbeddingModel` por-chunk, no global), y la dimensión del vector queda fija en el
+  schema (`vector(768)` con `nomic-embed-text`) — cambiar de modelo a otra dimensión requiere
+  migration + reembeder todo, no es un swap de config.
 
 Decisiones conscientes, no pendientes olvidados (ver ADR 0008):
 - **Auth (JWT) diferida a Fase 5.** El seed user actual es solo un insert de bootstrap, no
@@ -238,6 +260,7 @@ Decisiones conscientes, no pendientes olvidados (ver ADR 0008):
 - **Endpoints de `Users`** — deliberadamente fuera de scope hasta que se implemente auth
   (ver ADR 0007); no tienen caso de uso propio sin login real.
 
-Próximo paso: Fase 3 — AI pipeline (servicio Python: parse/chunk/embed), que trae consigo
-conectar el upload real de archivo (MinIO + `IFileStorage`, diferido dos veces ya) y el
-primer modo de falla real para el retry de `ProcessingJob`.
+Próximo paso: `ai-service-python` (FastAPI, routers `/parse` y `/chunk` primero, `/embed`
+después de confirmar conectividad con el Ollama de la máquina física), `DocumentChunks` +
+columna `vector(768)`, y el wiring real en `ProcessingJobProcessor` (reemplaza el placeholder
+de Fase 2) — que trae consigo el primer modo de falla real para el retry de `ProcessingJob`.

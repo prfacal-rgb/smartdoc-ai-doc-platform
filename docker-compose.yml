@@ -19,6 +19,27 @@ services:
     networks:
       - smartdoc-net
 
+  minio:
+    image: minio/minio:latest
+    container_name: smartdoc-minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-smartdoc}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-smartdoc_dev_password}
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # Web console
+    volumes:
+      - smartdoc-minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - smartdoc-net
+
   # AI Service (Python/FastAPI) — placeholder para Fase 3 (AI pipeline).
   # Se deja declarado desde ahora para no tener que rehacer este compose más
   # adelante, pero no se levanta hasta que exista código en ai-service-python/.
@@ -44,3 +65,4 @@ networks:
 
 volumes:
   smartdoc-postgres-data:
+  smartdoc-minio-data:
