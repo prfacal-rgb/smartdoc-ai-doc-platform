@@ -2,7 +2,9 @@ using Amazon.S3;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using SmartDoc.Application.AiService;
 using SmartDoc.Application.Storage;
+using SmartDoc.Infrastructure.AiService;
 using SmartDoc.Infrastructure.Persistence;
 using SmartDoc.Infrastructure.Processing;
 using SmartDoc.Infrastructure.Storage;
@@ -23,8 +25,21 @@ public static class DependencyInjection
         services.AddScoped<ProcessingJobProcessor>();
 
         AddFileStorage(services, configuration);
+        AddAiServiceClient(services, configuration);
 
         return services;
+    }
+
+    private static void AddAiServiceClient(IServiceCollection services, IConfiguration configuration)
+    {
+        var baseUrl = configuration["AiService:BaseUrl"]
+            ?? throw new InvalidOperationException("AiService:BaseUrl is not configured.");
+
+        services.AddHttpClient<IAiServiceClient, AiServiceClient>(client =>
+        {
+            client.BaseAddress = new Uri(baseUrl);
+            client.Timeout = TimeSpan.FromSeconds(60); // embeddings/parsing can take a while
+        });
     }
 
     private static void AddFileStorage(IServiceCollection services, IConfiguration configuration)
