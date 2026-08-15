@@ -79,9 +79,9 @@ estable — no crear la carpeta antes de eso.
 ## Fases de desarrollo (seguir en orden, no saltar)
 
 1. **Backend foundation** — API .NET + EF Core + PostgreSQL. CRUD de Documents, Users,
-   estados. Sin AI todavía. *(en progreso — ver "Estado actual")*
+   estados. Sin AI todavía. *(cerrada — ver "Estado actual")*
 2. **Async processing** — Job/Worker pattern. Upload devuelve `202 Accepted` sin esperar
-   procesamiento.
+   procesamiento. *(en progreso — ver "Estado actual")*
 3. **AI pipeline** — Servicio Python (parse/chunk/embed) + integración con .NET Worker.
 4. **RAG** — Retrieval + construcción de contexto + generación + citas.
 5. **Production polish** — Tests, logs, Docker Compose completo, manejo de errores,
@@ -179,7 +179,7 @@ señalarlo explícitamente en la respuesta y preguntar antes de implementar.
 
 ## Estado actual
 
-**Fase actual: 1 — Backend foundation (en progreso).**
+**Fase 1 — Backend foundation: cerrada. Fase actual: 2 — Async processing.**
 
 Completado:
 - Entorno de desarrollo operativo: Docker Desktop + WSL2, `docker compose up -d` levanta
@@ -214,11 +214,14 @@ Completado:
 - 8 integration tests end-to-end de los endpoints de `Documents` vía
   `WebApplicationFactory<Program>` contra Postgres real, sumados a los de `SmartDocDbContext`.
 
-Pendiente antes de cerrar la Fase 1:
-- Endpoints de `Users` — deliberadamente fuera de esta tanda (ver ADR 0007); se agregan
-  junto con auth (JWT + seed user real).
-- Auth (JWT, login del seed user) — todavía no implementado; el seed user actual es solo un
-  insert de bootstrap, no un mecanismo de autenticación.
+Decisiones conscientes, no pendientes olvidados (ver ADR 0008):
+- **Auth (JWT) diferida a Fase 5.** El seed user actual es solo un insert de bootstrap, no
+  autenticación. Mientras tanto, cualquier endpoint que reciba `UserId` (hoy `Documents`, y
+  los que se agreguen en Fases 2-4) lo toma del cliente sin validar identidad — riesgo
+  interino aceptado y documentado, no un descuido. Al llegar a Fase 5: implementar login +
+  proteger retroactivamente todos los endpoints construidos hasta ese momento.
+- **Endpoints de `Users`** — deliberadamente fuera de scope hasta que se implemente auth
+  (ver ADR 0007); no tienen caso de uso propio sin login real.
 
-Próximo paso: a definir — candidatos son auth (JWT) o cerrar Fase 1 y pasar a Fase 2
-(Async processing).
+Próximo paso: Fase 2 — Async processing (Job/Worker pattern, upload devuelve `202 Accepted`
+sin esperar procesamiento).
