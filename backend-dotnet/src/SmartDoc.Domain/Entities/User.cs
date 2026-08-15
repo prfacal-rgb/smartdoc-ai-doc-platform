@@ -2,6 +2,8 @@ namespace SmartDoc.Domain.Entities;
 
 public class User
 {
+    public const int MaxEmailLength = 320;
+
     public Guid Id { get; private set; }
     public string Email { get; private set; } = null!;
     public DateTimeOffset CreatedAt { get; private set; }
@@ -21,6 +23,11 @@ public class User
         if (string.IsNullOrWhiteSpace(email))
         {
             throw new ArgumentException("Email cannot be empty.", nameof(email));
+        }
+
+        if (email.Length > MaxEmailLength)
+        {
+            throw new ArgumentException($"Email cannot exceed {MaxEmailLength} characters.", nameof(email));
         }
 
         Id = id;

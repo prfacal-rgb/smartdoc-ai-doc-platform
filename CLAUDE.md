@@ -189,6 +189,22 @@ Completado:
   ADR 0005, `dotnet build` exitoso.
 - SDK fijado vía `global.json` (10.0.400).
 - ADRs 0001–0005 documentados en `docs/decisions/`.
+- `SmartDocDbContext` (`SmartDoc.Infrastructure`) + entidades `User` y `Document`
+  (`SmartDoc.Domain`), con configuraciones EF Core (`Email` único, longitudes máximas,
+  `Status` persistido como string) y migration `InitialCreate` aplicada contra Postgres.
+- `AddInfrastructure()` (DI) registrado en `SmartDoc.Api/Program.cs`, con soporte de
+  pgvector habilitado (`UseVector()`) desde ya aunque todavía no haya columnas `vector`.
+- Unit tests de `User`/`Document` (validación de constructor, longitudes máximas,
+  transiciones de estado) e integration tests de `SmartDocDbContext` contra Postgres real
+  (unique constraint de `Email`, persistencia de `Status` como texto legible, FK
+  `Document.UserId` → `Users.Id`).
+- Foreign Key `Document.UserId` → `Users.Id` (`DeleteBehavior.Restrict`, sin navigation
+  properties) — ver ADR 0006. Borrado de `User` decidido como lógico (no físico), pero su
+  implementación (`DeletedAt`/`SoftDelete()`) queda diferida hasta que exista un endpoint
+  real de borrado de usuario.
 
-Próximo paso: `DbContext` (`SmartDoc.Infrastructure`) + entidad `Document`
-(`SmartDoc.Domain`) + primera migration.
+Pendiente antes de cerrar la Fase 1:
+- Endpoints CRUD de `Documents`/`Users` (con FluentValidation) — todavía no existe ningún
+  endpoint más allá del scaffold inicial.
+
+Próximo paso: primeros endpoints CRUD de `Documents`/`Users`.

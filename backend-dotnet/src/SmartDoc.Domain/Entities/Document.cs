@@ -4,6 +4,9 @@ namespace SmartDoc.Domain.Entities;
 
 public class Document
 {
+    public const int MaxFileNameLength = 260;
+    public const int MaxStoragePathLength = 1024;
+
     public Guid Id { get; private set; }
     public Guid UserId { get; private set; }
     public string FileName { get; private set; } = null!;
@@ -40,6 +43,11 @@ public class Document
             throw new ArgumentException("FileName cannot be empty.", nameof(fileName));
         }
 
+        if (fileName.Length > MaxFileNameLength)
+        {
+            throw new ArgumentException($"FileName cannot exceed {MaxFileNameLength} characters.", nameof(fileName));
+        }
+
         if (string.IsNullOrWhiteSpace(contentType))
         {
             throw new ArgumentException("ContentType cannot be empty.", nameof(contentType));
@@ -48,6 +56,11 @@ public class Document
         if (string.IsNullOrWhiteSpace(storagePath))
         {
             throw new ArgumentException("StoragePath cannot be empty.", nameof(storagePath));
+        }
+
+        if (storagePath.Length > MaxStoragePathLength)
+        {
+            throw new ArgumentException($"StoragePath cannot exceed {MaxStoragePathLength} characters.", nameof(storagePath));
         }
 
         Id = id;
