@@ -2,6 +2,7 @@ using FluentValidation;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using SmartDoc.Application.Storage;
 using SmartDoc.Domain.Entities;
 using SmartDoc.Infrastructure.Persistence;
 
@@ -13,37 +14,47 @@ public static class DocumentEndpoints
     {
         var group = app.MapGroup("/api/documents").WithTags("Documents");
 
-        group.MapPost("/", CreateDocumentAsync);
+        // File-upload endpoints get anti-forgery metadata attached automatically since
+        // .NET 8 (ASP.NET Core requires app.UseAntiforgery() otherwise). Not needed here:
+        // this is a token/API-consumed backend, not a cookie-authenticated browser form.
+        group.MapPost("/", CreateDocumentAsync).DisableAntiforgery();
         group.MapGet("/", GetDocumentsAsync);
         group.MapGet("/{id:guid}", GetDocumentByIdAsync);
         group.MapDelete("/{id:guid}", DeleteDocumentAsync);
     }
 
     private static async Task<Results<Accepted<DocumentResponse>, ValidationProblem, NotFound<ProblemDetails>>> CreateDocumentAsync(
-        CreateDocumentRequest request,
+        IFormFile file,
+        [FromForm] Guid userId,
         IValidator<CreateDocumentRequest> validator,
         SmartDocDbContext db,
+        IFileStorage fileStorage,
         CancellationToken cancellationToken)
     {
+        var request = new CreateDocumentRequest(userId, file);
         var validationResult = await validator.ValidateAsync(request, cancellationToken);
         if (!validationResult.IsValid)
         {
             return TypedResults.ValidationProblem(validationResult.ToDictionary());
         }
 
-        var userExists = await db.Users.AnyAsync(u => u.Id == request.UserId, cancellationToken);
+        var userExists = await db.Users.AnyAsync(u => u.Id == userId, cancellationToken);
         if (!userExists)
         {
             return TypedResults.NotFound(new ProblemDetails
             {
                 Title = "User not found",
-                Detail = $"No user exists with id '{request.UserId}'.",
+                Detail = $"No user exists with id '{userId}'.",
             });
         }
 
+        var fileName = Path.GetFileName(file.FileName);
+
+        await using var stream = file.OpenReadStream();
+        var storagePath = await fileStorage.SaveAsync(stream, fileName, file.ContentType, cancellationToken);
+
         var now = DateTimeOffset.UtcNow;
-        var document = new Document(
-            Guid.NewGuid(), request.UserId, request.FileName, request.ContentType, request.StoragePath, now);
+        var document = new Document(Guid.NewGuid(), userId, fileName, file.ContentType, storagePath, now);
         var processingJob = new ProcessingJob(Guid.NewGuid(), document.Id, now);
 
         db.Documents.Add(document);
@@ -76,7 +87,7 @@ public static class DocumentEndpoints
     }
 
     private static async Task<Results<NoContent, NotFound>> DeleteDocumentAsync(
-        Guid id, SmartDocDbContext db, CancellationToken cancellationToken)
+        Guid id, SmartDocDbContext db, IFileStorage fileStorage, CancellationToken cancellationToken)
     {
         var document = await db.Documents.FindAsync([id], cancellationToken);
         if (document is null)
@@ -86,6 +97,11 @@ public static class DocumentEndpoints
 
         db.Documents.Remove(document);
         await db.SaveChangesAsync(cancellationToken);
+
+        // Best-effort: the DB row is already gone (source of truth for "does this document
+        // exist"), so a storage delete failure here doesn't get retried — an orphaned object
+        // in MinIO is a cheap, non-urgent cleanup issue, not a correctness one.
+        await fileStorage.DeleteAsync(document.StoragePath, cancellationToken);
 
         return TypedResults.NoContent();
     }
