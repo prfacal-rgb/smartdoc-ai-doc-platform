@@ -202,9 +202,23 @@ Completado:
   properties) — ver ADR 0006. Borrado de `User` decidido como lógico (no físico), pero su
   implementación (`DeletedAt`/`SoftDelete()`) queda diferida hasta que exista un endpoint
   real de borrado de usuario.
+- CRUD de `Documents` (`POST`/`GET`/`GET {id}`/`DELETE`) en `SmartDoc.Api/Features/Documents/`
+  — handlers Minimal API con `SmartDocDbContext` inyectado directamente (sin repositorio;
+  ver ADR 0007), FluentValidation, DTOs propios (nunca se exponen entidades EF Core). Solo
+  metadata en esta fase, sin archivo real (no hay object storage provisionado todavía).
+- Seed user mínimo al arrancar la Api (`SmartDocDbContextSeeder`, no es auth real) para que
+  `Document.UserId` tenga un valor válido con el que probar — ver ADR 0007.
+- OpenAPI nativo (`Microsoft.AspNetCore.OpenApi`) + Scalar UI en `/scalar/v1` (dev only) —
+  ver ADR 0007 para el porqué de Scalar en vez de Swashbuckle (conflicto real de versión de
+  `Microsoft.OpenApi` entre ambos).
+- 8 integration tests end-to-end de los endpoints de `Documents` vía
+  `WebApplicationFactory<Program>` contra Postgres real, sumados a los de `SmartDocDbContext`.
 
 Pendiente antes de cerrar la Fase 1:
-- Endpoints CRUD de `Documents`/`Users` (con FluentValidation) — todavía no existe ningún
-  endpoint más allá del scaffold inicial.
+- Endpoints de `Users` — deliberadamente fuera de esta tanda (ver ADR 0007); se agregan
+  junto con auth (JWT + seed user real).
+- Auth (JWT, login del seed user) — todavía no implementado; el seed user actual es solo un
+  insert de bootstrap, no un mecanismo de autenticación.
 
-Próximo paso: primeros endpoints CRUD de `Documents`/`Users`.
+Próximo paso: a definir — candidatos son auth (JWT) o cerrar Fase 1 y pasar a Fase 2
+(Async processing).
