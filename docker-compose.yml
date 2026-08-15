@@ -40,24 +40,27 @@ services:
     networks:
       - smartdoc-net
 
-  # AI Service (Python/FastAPI) — placeholder para Fase 3 (AI pipeline).
-  # Se deja declarado desde ahora para no tener que rehacer este compose más
-  # adelante, pero no se levanta hasta que exista código en ai-service-python/.
-  # ai-service:
-  #   build:
-  #     context: ./ai-service-python
-  #     dockerfile: Dockerfile
-  #   container_name: smartdoc-ai-service
-  #   restart: unless-stopped
-  #   environment:
-  #     AI_SERVICE_PORT: ${AI_SERVICE_PORT:-8000}
-  #   ports:
-  #     - "${AI_SERVICE_PORT:-8000}:8000"
-  #   networks:
-  #     - smartdoc-net
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
+  ai-service:
+    build:
+      context: ./ai-service-python
+      dockerfile: Dockerfile
+    container_name: smartdoc-ai-service
+    restart: unless-stopped
+    environment:
+      AI_SERVICE_PORT: ${AI_SERVICE_PORT:-8000}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-ollama}
+      # Ollama runs on the physical host (not this VM, not a container) — see ADR 0011.
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://192.168.56.1:11434/v1}
+      OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}
+    ports:
+      - "${AI_SERVICE_PORT:-8000}:8000"
+    networks:
+      - smartdoc-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
 networks:
   smartdoc-net:

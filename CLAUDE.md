@@ -250,6 +250,13 @@ Completado:
   generó (`EmbeddingModel` por-chunk, no global), y la dimensión del vector queda fija en el
   schema (`vector(768)` con `nomic-embed-text`) — cambiar de modelo a otra dimensión requiere
   migration + reembeder todo, no es un swap de config.
+- **`ai-service-python` scaffold (ver ADR 0011):** FastAPI, routers `/parse` (pypdf, sin
+  OCR — limitación conocida del MVP) y `/chunk` (chunking por página, no cruza saltos de
+  página — necesario para citas "archivo — página N"; `tiktoken cl100k_base` como estimador
+  de tokens aproximado, no exacto; defaults `chunk_size_tokens=500`/`overlap_tokens=75`).
+  `ai-service` activado en `docker-compose.yml`. 11 tests (`pytest`), verificado además con
+  el contenedor Docker real corriendo (no solo el venv local). `/embed` pendiente de
+  confirmar conectividad del contenedor hacia `192.168.56.1:11434` (Ollama, máquina física).
 
 Decisiones conscientes, no pendientes olvidados (ver ADR 0008):
 - **Auth (JWT) diferida a Fase 5.** El seed user actual es solo un insert de bootstrap, no
@@ -260,7 +267,7 @@ Decisiones conscientes, no pendientes olvidados (ver ADR 0008):
 - **Endpoints de `Users`** — deliberadamente fuera de scope hasta que se implemente auth
   (ver ADR 0007); no tienen caso de uso propio sin login real.
 
-Próximo paso: `ai-service-python` (FastAPI, routers `/parse` y `/chunk` primero, `/embed`
-después de confirmar conectividad con el Ollama de la máquina física), `DocumentChunks` +
+Próximo paso: confirmar conectividad del contenedor `ai-service` hacia el Ollama de la
+máquina física, luego `/embed` (con `EmbeddingModel` en la respuesta), `DocumentChunks` +
 columna `vector(768)`, y el wiring real en `ProcessingJobProcessor` (reemplaza el placeholder
 de Fase 2) — que trae consigo el primer modo de falla real para el retry de `ProcessingJob`.
