@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using SmartDoc.Infrastructure.Persistence;
+using SmartDoc.Infrastructure.Processing;
 
 namespace SmartDoc.Infrastructure;
 
@@ -15,6 +16,8 @@ public static class DependencyInjection
 
         services.AddDbContext<SmartDocDbContext>(options =>
             options.UseNpgsql(connectionString, o => o.UseVector()));
+
+        services.AddScoped<ProcessingJobProcessor>();
 
         return services;
     }
