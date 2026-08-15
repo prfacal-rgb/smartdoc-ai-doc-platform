@@ -19,7 +19,7 @@ public static class DocumentEndpoints
         group.MapDelete("/{id:guid}", DeleteDocumentAsync);
     }
 
-    private static async Task<Results<Created<DocumentResponse>, ValidationProblem, NotFound<ProblemDetails>>> CreateDocumentAsync(
+    private static async Task<Results<Accepted<DocumentResponse>, ValidationProblem, NotFound<ProblemDetails>>> CreateDocumentAsync(
         CreateDocumentRequest request,
         IValidator<CreateDocumentRequest> validator,
         SmartDocDbContext db,
@@ -41,13 +41,18 @@ public static class DocumentEndpoints
             });
         }
 
+        var now = DateTimeOffset.UtcNow;
         var document = new Document(
-            Guid.NewGuid(), request.UserId, request.FileName, request.ContentType, request.StoragePath, DateTimeOffset.UtcNow);
+            Guid.NewGuid(), request.UserId, request.FileName, request.ContentType, request.StoragePath, now);
+        var processingJob = new ProcessingJob(Guid.NewGuid(), document.Id, now);
 
         db.Documents.Add(document);
+        db.ProcessingJobs.Add(processingJob);
         await db.SaveChangesAsync(cancellationToken);
 
-        return TypedResults.Created($"/api/documents/{document.Id}", DocumentResponse.FromEntity(document));
+        // 202: the document is stored but not processed yet — the Worker picks up the
+        // ProcessingJob asynchronously. Location points to where the client can poll status.
+        return TypedResults.Accepted($"/api/documents/{document.Id}", DocumentResponse.FromEntity(document));
     }
 
     private static async Task<Ok<List<DocumentResponse>>> GetDocumentsAsync(

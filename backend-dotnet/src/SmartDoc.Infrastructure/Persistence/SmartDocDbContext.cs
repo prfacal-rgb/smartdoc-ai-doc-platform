@@ -12,6 +12,7 @@ public class SmartDocDbContext : DbContext
 
     public DbSet<User> Users => Set<User>();
     public DbSet<Document> Documents => Set<Document>();
+    public DbSet<ProcessingJob> ProcessingJobs => Set<ProcessingJob>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

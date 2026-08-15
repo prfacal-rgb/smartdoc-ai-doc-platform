@@ -81,8 +81,9 @@ estable — no crear la carpeta antes de eso.
 1. **Backend foundation** — API .NET + EF Core + PostgreSQL. CRUD de Documents, Users,
    estados. Sin AI todavía. *(cerrada — ver "Estado actual")*
 2. **Async processing** — Job/Worker pattern. Upload devuelve `202 Accepted` sin esperar
-   procesamiento. *(en progreso — ver "Estado actual")*
+   procesamiento. *(cerrada — ver "Estado actual")*
 3. **AI pipeline** — Servicio Python (parse/chunk/embed) + integración con .NET Worker.
+   *(en progreso — ver "Estado actual")*
 4. **RAG** — Retrieval + construcción de contexto + generación + citas.
 5. **Production polish** — Tests, logs, Docker Compose completo, manejo de errores,
    documentación. No agregar features nuevas en esta fase.
@@ -179,7 +180,7 @@ señalarlo explícitamente en la respuesta y preguntar antes de implementar.
 
 ## Estado actual
 
-**Fase 1 — Backend foundation: cerrada. Fase actual: 2 — Async processing.**
+**Fases 1-2 cerradas (Backend foundation, Async processing). Fase actual: 3 — AI pipeline.**
 
 Completado:
 - Entorno de desarrollo operativo: Docker Desktop + WSL2, `docker compose up -d` levanta
@@ -213,6 +214,20 @@ Completado:
   `Microsoft.OpenApi` entre ambos).
 - 8 integration tests end-to-end de los endpoints de `Documents` vía
   `WebApplicationFactory<Program>` contra Postgres real, sumados a los de `SmartDocDbContext`.
+- **Fase 2 — patrón Job/Worker (ver ADR 0009):** entidad `ProcessingJob` (`Pending/Running/
+  Done/Failed`), FK `ProcessingJob.DocumentId → Documents.Id` con `Cascade` (a diferencia de
+  `Restrict` en `Document.UserId`, ver ADR 0006 — un job no tiene sentido sin su documento).
+  `POST /api/documents` ahora crea también el `ProcessingJob` y devuelve `202 Accepted` (antes
+  `201 Created`). `SmartDoc.Worker` corre `ProcessingJobPollingWorker`
+  (`BackgroundService`, polling cada `Worker:PollingIntervalSeconds`, default 5s) que delega en
+  `ProcessingJobProcessor` (`SmartDoc.Infrastructure`, testeable sin el loop). El
+  "procesamiento" en esta fase es un placeholder (sin AI real todavía — eso es Fase 3):
+  prueba el mecanismo asíncrono en sí, no contenido. Sin retry automático todavía (`RetryCount`
+  existe en el schema pero nada lo consume aún). Verificado end-to-end corriendo el Worker
+  como proceso real. 10 tests nuevos (unit + integration); tests de integración ahora corren
+  secuenciales (`DisableTestParallelization`) por compartir la misma DB real sin aislamiento.
+- File storage real (MinIO + `IFileStorage`) sigue diferido — recién hace falta en Fase 3,
+  cuando el Worker necesite leer el archivo para extraer texto.
 
 Decisiones conscientes, no pendientes olvidados (ver ADR 0008):
 - **Auth (JWT) diferida a Fase 5.** El seed user actual es solo un insert de bootstrap, no
@@ -223,5 +238,6 @@ Decisiones conscientes, no pendientes olvidados (ver ADR 0008):
 - **Endpoints de `Users`** — deliberadamente fuera de scope hasta que se implemente auth
   (ver ADR 0007); no tienen caso de uso propio sin login real.
 
-Próximo paso: Fase 2 — Async processing (Job/Worker pattern, upload devuelve `202 Accepted`
-sin esperar procesamiento).
+Próximo paso: Fase 3 — AI pipeline (servicio Python: parse/chunk/embed), que trae consigo
+conectar el upload real de archivo (MinIO + `IFileStorage`, diferido dos veces ya) y el
+primer modo de falla real para el retry de `ProcessingJob`.

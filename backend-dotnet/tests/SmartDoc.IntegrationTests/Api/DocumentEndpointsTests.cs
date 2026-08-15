@@ -2,8 +2,10 @@ using System.Net;
 using System.Net.Http.Json;
 using FluentAssertions;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.EntityFrameworkCore;
 using SmartDoc.Api.Features.Documents;
 using SmartDoc.Domain.Entities;
+using SmartDoc.Domain.Enums;
 using SmartDoc.IntegrationTests.Persistence;
 
 namespace SmartDoc.IntegrationTests.Api;
@@ -40,6 +42,9 @@ public class DocumentEndpointsTests : IClassFixture<WebApplicationFactory<Progra
     public async Task DisposeAsync()
     {
         await using var db = _dbFixture.CreateContext();
+
+        // ProcessingJobs cascade-delete with their Document (ADR — see ProcessingJobConfiguration),
+        // so removing the Documents is enough; no separate cleanup needed for the jobs.
         db.Documents.RemoveRange(db.Documents.Where(d => d.UserId == _testUser.Id));
         await db.SaveChangesAsync();
 
@@ -48,13 +53,13 @@ public class DocumentEndpointsTests : IClassFixture<WebApplicationFactory<Progra
     }
 
     [Fact]
-    public async Task PostDocuments_WithValidRequest_ReturnsCreatedWithLocationAndBody()
+    public async Task PostDocuments_WithValidRequest_ReturnsAcceptedWithLocationAndBody()
     {
         var request = new CreateDocumentRequest(_testUser.Id, "report.pdf", "application/pdf", $"/storage/{Guid.NewGuid():N}.pdf");
 
         var response = await _client.PostAsJsonAsync("/api/documents", request);
 
-        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        response.StatusCode.Should().Be(HttpStatusCode.Accepted);
         response.Headers.Location.Should().NotBeNull();
 
         var body = await response.Content.ReadFromJsonAsync<DocumentResponse>();
@@ -62,6 +67,21 @@ public class DocumentEndpointsTests : IClassFixture<WebApplicationFactory<Progra
         body!.UserId.Should().Be(_testUser.Id);
         body.FileName.Should().Be("report.pdf");
         body.Status.Should().Be("Uploaded");
+    }
+
+    [Fact]
+    public async Task PostDocuments_WithValidRequest_CreatesAPendingProcessingJob()
+    {
+        var request = new CreateDocumentRequest(_testUser.Id, "report.pdf", "application/pdf", $"/storage/{Guid.NewGuid():N}.pdf");
+
+        var response = await _client.PostAsJsonAsync("/api/documents", request);
+        var created = await response.Content.ReadFromJsonAsync<DocumentResponse>();
+
+        await using var db = _dbFixture.CreateContext();
+        var job = await db.ProcessingJobs.SingleAsync(j => j.DocumentId == created!.Id);
+
+        job.Status.Should().Be(ProcessingJobStatus.Pending);
+        job.RetryCount.Should().Be(0);
     }
 
     [Fact]
