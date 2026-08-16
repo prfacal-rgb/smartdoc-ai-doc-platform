@@ -276,6 +276,16 @@ Completado:
   placeholder de Fase 2. 12 tests nuevos, incluyendo un end-to-end contra el stack completo
   (Postgres + MinIO + ai-service + Ollama) con un PDF de fixture real. Verificado además con
   un smoke test manual: Api real + Worker real procesando un documento subido de verdad.
+- **Fase 4 (en progreso) — `/generate` con Groq (ver ADR 0014):** Ollama local descartado
+  para generación con datos reales (40.67s para 35 tokens, ~0.87 tok/s — inviable para un
+  endpoint síncrono/user-facing, a diferencia de `/embed` que corre en background). Groq
+  (`llama-3.3-70b-versatile`): 0.47s totales, ~330 tok/s, gratis. `LlmProvider` (ABC) mismo
+  patrón que `EmbeddingProvider`. Citas NO delegadas al LLM — `/generate` solo recibe texto
+  plano de contexto y devuelve la respuesta; .NET arma "Sources:" desde su propia metadata
+  de retrieval (`FileName`/`PageNumber`), sin confiar en que el LLM cite bien. Encontrado y
+  resuelto: la API de Groq (detrás de Cloudflare) rechaza requests sin `User-Agent` normal
+  (error 1010, no es un error de auth). 4 tests nuevos, verificado también con el contenedor
+  Docker real (env vars resueltas desde `.env` de la raíz vía `docker-compose.yml`).
 
 Decisiones conscientes, no pendientes olvidados (ver ADR 0008):
 - **Auth (JWT) diferida a Fase 5.** El seed user actual es solo un insert de bootstrap, no
@@ -286,8 +296,9 @@ Decisiones conscientes, no pendientes olvidados (ver ADR 0008):
 - **Endpoints de `Users`** — deliberadamente fuera de scope hasta que se implemente auth
   (ver ADR 0007); no tienen caso de uso propio sin login real.
 
-Próximo paso: Fase 4 — RAG. Similarity search contra `pgvector` desde .NET (top-K
-configurable, PROJECT.md sugiere 5), construcción de contexto, `POST /generate` en Python
-(recién ahí se decide el LLM provider — ver PROJECT.md §3), y citas con página. También es
-el punto natural para retomar retry granular de `ProcessingJob` si aparecen fallos reales
+Próximo paso: similarity search en .NET contra `pgvector` (top-K configurable, PROJECT.md
+sugiere 5 — falta el índice de similaridad, pendiente desde ADR 0004), `Conversations`/
+`Messages`, y los endpoints `POST /api/search`/`POST /api/chat`/`GET
+/api/chat/{conversationId}` que unen retrieval + `/generate` + citas. También es el punto
+natural para retomar retry granular de `ProcessingJob` si aparecen fallos reales
 recurrentes.
