@@ -14,6 +14,8 @@ public class SmartDocDbContext : DbContext
     public DbSet<Document> Documents => Set<Document>();
     public DbSet<ProcessingJob> ProcessingJobs => Set<ProcessingJob>();
     public DbSet<DocumentChunk> DocumentChunks => Set<DocumentChunk>();
+    public DbSet<Conversation> Conversations => Set<Conversation>();
+    public DbSet<Message> Messages => Set<Message>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

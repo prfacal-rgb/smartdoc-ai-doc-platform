@@ -286,6 +286,10 @@ Completado:
   resuelto: la API de Groq (detrás de Cloudflare) rechaza requests sin `User-Agent` normal
   (error 1010, no es un error de auth). 4 tests nuevos, verificado también con el contenedor
   Docker real (env vars resueltas desde `.env` de la raíz vía `docker-compose.yml`).
+- **`Conversations`/`Messages` (ver ADR 0015).** Citas guardadas como parte de `Content`
+  (prosa + "Sources:"), no en tabla separada — `PROJECT.md` no la pide. FKs siguiendo
+  precedentes ya establecidos: `Conversation → User` `Restrict` (ADR 0006), `Message →
+  Conversation` `Cascade` (ADR 0009). 12 tests nuevos.
 
 Decisiones conscientes, no pendientes olvidados (ver ADR 0008):
 - **Auth (JWT) diferida a Fase 5.** El seed user actual es solo un insert de bootstrap, no
@@ -297,8 +301,8 @@ Decisiones conscientes, no pendientes olvidados (ver ADR 0008):
   (ver ADR 0007); no tienen caso de uso propio sin login real.
 
 Próximo paso: similarity search en .NET contra `pgvector` (top-K configurable, PROJECT.md
-sugiere 5 — falta el índice de similaridad, pendiente desde ADR 0004), `Conversations`/
-`Messages`, y los endpoints `POST /api/search`/`POST /api/chat`/`GET
-/api/chat/{conversationId}` que unen retrieval + `/generate` + citas. También es el punto
-natural para retomar retry granular de `ProcessingJob` si aparecen fallos reales
+sugiere 5 — falta el índice de similaridad, pendiente desde ADR 0004), y los endpoints
+`POST /api/search`/`POST /api/chat`/`GET /api/chat/{conversationId}` que unen retrieval +
+`/generate` + citas. También es el punto natural para retomar retry granular de
+`ProcessingJob` si aparecen fallos reales
 recurrentes.
