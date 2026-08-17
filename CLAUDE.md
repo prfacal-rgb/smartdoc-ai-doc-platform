@@ -344,6 +344,22 @@ Completado:
   (`RetryCount = 4`). Encontrado de paso: `SmartDoc.Worker` (Generic Host puro, no ASP.NET
   Core) usa `DOTNET_ENVIRONMENT`, no `ASPNETCORE_ENVIRONMENT`, para cargar
   `appsettings.Development.json` al correrlo suelto.
+- **Índice HNSW sobre `DocumentChunks.Embedding` (ver ADR 0019).** `DocumentChunks` sigue en
+  0 filas en este entorno — se documenta sin vueltas que esto es una decisión de arquitectura
+  para portfolio, no una optimización motivada por un cuello de botella medido. HNSW en vez
+  de `ivfflat` por una razón concreta de este proyecto: `ivfflat` clusteriza (k-means) a
+  partir de los datos presentes al momento de `CREATE INDEX`, y esta tabla arranca vacía y
+  crece de a un documento por vez — generaría clusters degenerados. HNSW construye su grafo
+  de forma incremental, sin depender de datos representativos de entrada.
+  `vector_cosine_ops` matchea el operador `<=>` que ya usa `SimilaritySearchService` (ADR
+  0016); `m`/`ef_construction` en los defaults de pgvector, sin tunear (mismo criterio que
+  `Rag:MaxRelevantDistance`: sin tráfico real no hay contra qué calibrar). Verificado
+  cargando temporalmente 5000 filas sintéticas y confirmando con `EXPLAIN (ANALYZE, BUFFERS)`
+  que el plan pasa de `Seq Scan` a `Index Scan using "IX_DocumentChunks_Embedding"` — hallazgo
+  real en el camino: el primer intento, recién después del bulk insert y sin `ANALYZE`, el
+  planner ignoró el índice por estadísticas desactualizadas (en producción, autovacuum lo
+  resuelve solo). Datos sintéticos borrados al terminar, 116 tests sin cambios (el índice no
+  altera resultados, solo el plan de ejecución).
 
 Decisiones conscientes, no pendientes olvidados:
 - **Endpoints de `Users`** (registro, cambio de password) — deliberadamente fuera de scope
@@ -352,6 +368,6 @@ Decisiones conscientes, no pendientes olvidados:
 - **Sin revocación de tokens.** El claim `jti` se emite pero no se persiste ni se chequea
   contra ninguna lista — sin logout real; aceptable para un solo seed user (ver ADR 0017).
 
-Próximo paso: seguir con Fase 5 (Production polish). Candidatos ya identificados: índice de
-similaridad de `pgvector` si el volumen de datos lo justifica (ADR 0016), y ajuste empírico
-del threshold de similaridad (`Rag:MaxRelevantDistance`, ADR 0016).
+Próximo paso: seguir con Fase 5 (Production polish). Candidato ya identificado: ajuste
+empírico del threshold de similaridad (`Rag:MaxRelevantDistance`, ADR 0016) — requiere
+tráfico real para calibrar, no bloqueante.
