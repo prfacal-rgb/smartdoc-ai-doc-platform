@@ -22,7 +22,7 @@ public class ProcessingJobPersistenceTests : IClassFixture<DatabaseFixture>
     [Fact]
     public async Task SaveChanges_PersistsProcessingJob_RoundTripsExpectedValues()
     {
-        var user = new User(Guid.NewGuid(), $"user-{Guid.NewGuid():N}@example.com", DateTimeOffset.UtcNow);
+        var user = new User(Guid.NewGuid(), $"user-{Guid.NewGuid():N}@example.com", "test-password-hash", DateTimeOffset.UtcNow);
         var document = new Document(
             Guid.NewGuid(), user.Id, "report.pdf", "application/pdf", $"/storage/{Guid.NewGuid():N}.pdf", DateTimeOffset.UtcNow);
         var job = new ProcessingJob(Guid.NewGuid(), document.Id, DateTimeOffset.UtcNow);
@@ -70,7 +70,7 @@ public class ProcessingJobPersistenceTests : IClassFixture<DatabaseFixture>
     [Fact]
     public async Task DeletingDocument_CascadeDeletesItsProcessingJobs()
     {
-        var user = new User(Guid.NewGuid(), $"user-{Guid.NewGuid():N}@example.com", DateTimeOffset.UtcNow);
+        var user = new User(Guid.NewGuid(), $"user-{Guid.NewGuid():N}@example.com", "test-password-hash", DateTimeOffset.UtcNow);
         var document = new Document(
             Guid.NewGuid(), user.Id, "report.pdf", "application/pdf", $"/storage/{Guid.NewGuid():N}.pdf", DateTimeOffset.UtcNow);
         var job = new ProcessingJob(Guid.NewGuid(), document.Id, DateTimeOffset.UtcNow);

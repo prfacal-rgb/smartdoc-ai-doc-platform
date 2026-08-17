@@ -22,7 +22,7 @@ public class ConversationMessagePersistenceTests : IClassFixture<DatabaseFixture
     [Fact]
     public async Task SaveChanges_PersistsConversationAndMessages_RoundTripsExpectedValues()
     {
-        var user = new User(Guid.NewGuid(), $"user-{Guid.NewGuid():N}@example.com", DateTimeOffset.UtcNow);
+        var user = new User(Guid.NewGuid(), $"user-{Guid.NewGuid():N}@example.com", "test-password-hash", DateTimeOffset.UtcNow);
         var conversation = new Conversation(Guid.NewGuid(), user.Id, DateTimeOffset.UtcNow);
         var userMessage = new Message(Guid.NewGuid(), conversation.Id, MessageRole.User, "What is RAG?", DateTimeOffset.UtcNow);
         var assistantMessage = new Message(
@@ -89,7 +89,7 @@ public class ConversationMessagePersistenceTests : IClassFixture<DatabaseFixture
     [Fact]
     public async Task DeletingConversation_CascadeDeletesItsMessages()
     {
-        var user = new User(Guid.NewGuid(), $"user-{Guid.NewGuid():N}@example.com", DateTimeOffset.UtcNow);
+        var user = new User(Guid.NewGuid(), $"user-{Guid.NewGuid():N}@example.com", "test-password-hash", DateTimeOffset.UtcNow);
         var conversation = new Conversation(Guid.NewGuid(), user.Id, DateTimeOffset.UtcNow);
         var message = new Message(Guid.NewGuid(), conversation.Id, MessageRole.User, "text", DateTimeOffset.UtcNow);
 
@@ -125,7 +125,7 @@ public class ConversationMessagePersistenceTests : IClassFixture<DatabaseFixture
     [Fact]
     public async Task DeletingUser_WithExistingConversation_ThrowsDbUpdateException()
     {
-        var user = new User(Guid.NewGuid(), $"user-{Guid.NewGuid():N}@example.com", DateTimeOffset.UtcNow);
+        var user = new User(Guid.NewGuid(), $"user-{Guid.NewGuid():N}@example.com", "test-password-hash", DateTimeOffset.UtcNow);
         var conversation = new Conversation(Guid.NewGuid(), user.Id, DateTimeOffset.UtcNow);
 
         await using (var writeContext = _fixture.CreateContext())

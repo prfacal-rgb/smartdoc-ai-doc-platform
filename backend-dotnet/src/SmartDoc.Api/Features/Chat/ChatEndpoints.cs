@@ -1,7 +1,9 @@
+using System.Security.Claims;
 using FluentValidation;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using SmartDoc.Api.Features.Auth;
 using SmartDoc.Application.AiService;
 using SmartDoc.Domain.Entities;
 using SmartDoc.Domain.Enums;
@@ -20,7 +22,7 @@ public static class ChatEndpoints
 
     public static void MapChatEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/chat").WithTags("Chat");
+        var group = app.MapGroup("/api/chat").WithTags("Chat").RequireAuthorization();
 
         group.MapPost("/", PostChatAsync);
         group.MapGet("/{conversationId:guid}", GetConversationAsync);
@@ -28,6 +30,7 @@ public static class ChatEndpoints
 
     private static async Task<Results<Ok<ChatResponse>, ValidationProblem, NotFound<ProblemDetails>>> PostChatAsync(
         ChatRequest request,
+        ClaimsPrincipal claimsPrincipal,
         IValidator<ChatRequest> validator,
         SmartDocDbContext db,
         IAiServiceClient aiServiceClient,
@@ -41,23 +44,16 @@ public static class ChatEndpoints
             return TypedResults.ValidationProblem(validationResult.ToDictionary());
         }
 
-        var userExists = await db.Users.AnyAsync(u => u.Id == request.UserId, cancellationToken);
-        if (!userExists)
-        {
-            return TypedResults.NotFound(new ProblemDetails
-            {
-                Title = "User not found",
-                Detail = $"No user exists with id '{request.UserId}'.",
-            });
-        }
-
+        // No "does this user exist" check anymore (ADR 0017) — same reasoning as
+        // DocumentEndpoints: userId comes from a validated JWT now, not client input.
+        var userId = claimsPrincipal.GetUserId();
         var now = DateTimeOffset.UtcNow;
         Conversation conversation;
 
         if (request.ConversationId is { } conversationId)
         {
             var existing = await db.Conversations
-                .SingleOrDefaultAsync(c => c.Id == conversationId && c.UserId == request.UserId, cancellationToken);
+                .SingleOrDefaultAsync(c => c.Id == conversationId && c.UserId == userId, cancellationToken);
 
             if (existing is null)
             {
@@ -74,7 +70,7 @@ public static class ChatEndpoints
         }
         else
         {
-            conversation = new Conversation(Guid.NewGuid(), request.UserId, now);
+            conversation = new Conversation(Guid.NewGuid(), userId, now);
             db.Conversations.Add(conversation);
         }
 
@@ -118,9 +114,14 @@ public static class ChatEndpoints
     }
 
     private static async Task<Results<Ok<ConversationHistoryResponse>, NotFound>> GetConversationAsync(
-        Guid conversationId, SmartDocDbContext db, CancellationToken cancellationToken)
+        Guid conversationId, ClaimsPrincipal claimsPrincipal, SmartDocDbContext db, CancellationToken cancellationToken)
     {
-        var conversationExists = await db.Conversations.AnyAsync(c => c.Id == conversationId, cancellationToken);
+        // Unlike Documents (shared knowledge base), a conversation is personal — only its
+        // owner can read it. Same 404-hides-existence pattern as PostChatAsync above.
+        var userId = claimsPrincipal.GetUserId();
+        var conversationExists = await db.Conversations
+            .AnyAsync(c => c.Id == conversationId && c.UserId == userId, cancellationToken);
+
         if (!conversationExists)
         {
             return TypedResults.NotFound();

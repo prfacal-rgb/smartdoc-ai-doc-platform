@@ -21,7 +21,7 @@ public class SmartDocDbContextTests : IClassFixture<DatabaseFixture>
     [Fact]
     public async Task SaveChanges_PersistsUserAndDocument_RoundTripsExpectedValues()
     {
-        var user = new User(Guid.NewGuid(), $"user-{Guid.NewGuid():N}@example.com", DateTimeOffset.UtcNow);
+        var user = new User(Guid.NewGuid(), $"user-{Guid.NewGuid():N}@example.com", "test-password-hash", DateTimeOffset.UtcNow);
         var document = new Document(
             Guid.NewGuid(), user.Id, "report.pdf", "application/pdf", $"/storage/{Guid.NewGuid():N}.pdf", DateTimeOffset.UtcNow);
 
@@ -55,7 +55,7 @@ public class SmartDocDbContextTests : IClassFixture<DatabaseFixture>
     [Fact]
     public async Task SaveChanges_PersistsDocument_StoresStatusAsReadablePostgresText()
     {
-        var user = new User(Guid.NewGuid(), $"user-{Guid.NewGuid():N}@example.com", DateTimeOffset.UtcNow);
+        var user = new User(Guid.NewGuid(), $"user-{Guid.NewGuid():N}@example.com", "test-password-hash", DateTimeOffset.UtcNow);
         var document = new Document(
             Guid.NewGuid(), user.Id, "report.pdf", "application/pdf", $"/storage/{Guid.NewGuid():N}.pdf", DateTimeOffset.UtcNow);
 
@@ -86,8 +86,8 @@ public class SmartDocDbContextTests : IClassFixture<DatabaseFixture>
     public async Task SaveChanges_DuplicateEmail_ThrowsDbUpdateException()
     {
         var email = $"user-{Guid.NewGuid():N}@example.com";
-        var user1 = new User(Guid.NewGuid(), email, DateTimeOffset.UtcNow);
-        var user2 = new User(Guid.NewGuid(), email, DateTimeOffset.UtcNow);
+        var user1 = new User(Guid.NewGuid(), email, "test-password-hash", DateTimeOffset.UtcNow);
+        var user2 = new User(Guid.NewGuid(), email, "test-password-hash", DateTimeOffset.UtcNow);
 
         await using var context = _fixture.CreateContext();
         context.Users.Add(user1);

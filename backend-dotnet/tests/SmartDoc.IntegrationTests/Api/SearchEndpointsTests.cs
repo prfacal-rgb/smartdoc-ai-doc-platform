@@ -32,7 +32,7 @@ public class SearchEndpointsTests : IClassFixture<WebApplicationFactory<Program>
     {
         _client = _factory.CreateClient();
 
-        _testUser = new User(Guid.NewGuid(), $"user-{Guid.NewGuid():N}@example.com", DateTimeOffset.UtcNow);
+        _testUser = new User(Guid.NewGuid(), $"user-{Guid.NewGuid():N}@example.com", "test-password-hash", DateTimeOffset.UtcNow);
         var document = new Document(
             Guid.NewGuid(), _testUser.Id, "sunset.pdf", "application/pdf", $"/storage/{Guid.NewGuid():N}.pdf", DateTimeOffset.UtcNow);
 
@@ -48,6 +48,8 @@ public class SearchEndpointsTests : IClassFixture<WebApplicationFactory<Program>
         db.Documents.Add(document);
         db.DocumentChunks.Add(chunk);
         await db.SaveChangesAsync();
+
+        _client.AuthenticateAs(_factory, _testUser);
     }
 
     public async Task DisposeAsync()
@@ -57,6 +59,16 @@ public class SearchEndpointsTests : IClassFixture<WebApplicationFactory<Program>
         await db.SaveChangesAsync();
         db.Users.Remove(_testUser);
         await db.SaveChangesAsync();
+    }
+
+    [Fact]
+    public async Task PostSearch_WithoutToken_ReturnsUnauthorized()
+    {
+        using var anonymousClient = _factory.CreateClient();
+
+        var response = await anonymousClient.PostAsJsonAsync("/api/search", new SearchRequest("anything", null));
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
     [Fact]
