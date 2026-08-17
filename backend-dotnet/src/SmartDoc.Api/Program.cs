@@ -1,7 +1,9 @@
 using Amazon.S3;
 using FluentValidation;
 using Scalar.AspNetCore;
+using SmartDoc.Api.Features.Chat;
 using SmartDoc.Api.Features.Documents;
+using SmartDoc.Api.Features.Search;
 using SmartDoc.Infrastructure;
 using SmartDoc.Infrastructure.Persistence;
 using SmartDoc.Infrastructure.Storage;
@@ -22,6 +24,8 @@ if (app.Environment.IsDevelopment())
 
 app.MapGet("/", () => "Hello World!");
 app.MapDocumentEndpoints();
+app.MapSearchEndpoints();
+app.MapChatEndpoints();
 
 var seedUserEmail = builder.Configuration["Jwt:SeedUserEmail"]
     ?? throw new InvalidOperationException("Jwt:SeedUserEmail is not configured.");
