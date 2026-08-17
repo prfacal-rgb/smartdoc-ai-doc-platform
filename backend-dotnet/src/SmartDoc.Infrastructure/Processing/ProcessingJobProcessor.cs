@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using SmartDoc.Application.AiService;
 using SmartDoc.Application.Storage;
@@ -14,13 +15,16 @@ namespace SmartDoc.Infrastructure.Processing;
 /// machinery.
 ///
 /// Phase 3: reads the file from object storage, calls the AI service (parse -> chunk ->
-/// embed), and persists the resulting DocumentChunks. Any failure at any step fails the job
-/// and the document as a whole — no partial-success/granular retry yet (ADR 0013).
+/// embed), and persists the resulting DocumentChunks. Failures during that pipeline are
+/// treated as transient and go through granular retry (Worker:MaxRetries, see ADR 0018) —
+/// the job goes back to Pending and gets picked up again by a later poll, up to the
+/// configured limit, before the job and Document are marked permanently Failed.
 /// </summary>
 public class ProcessingJobProcessor(
     SmartDocDbContext db,
     IFileStorage fileStorage,
     IAiServiceClient aiServiceClient,
+    IConfiguration configuration,
     ILogger<ProcessingJobProcessor> logger)
 {
     /// <returns>true if a job was picked up and processed, false if none was pending.</returns>
@@ -89,10 +93,23 @@ public class ProcessingJobProcessor(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            job.MarkAsFailed(ex.Message, DateTimeOffset.UtcNow);
-            document.MarkAsFailed();
+            var maxRetries = configuration.GetValue("Worker:MaxRetries", 3);
+            job.RecordFailure(ex.Message, DateTimeOffset.UtcNow, maxRetries);
 
-            logger.LogError(ex, "Processing job {JobId} for document {DocumentId} failed.", job.Id, job.DocumentId);
+            if (job.Status == ProcessingJobStatus.Failed)
+            {
+                document.MarkAsFailed();
+                logger.LogError(
+                    ex, "Processing job {JobId} for document {DocumentId} failed permanently after {RetryCount} attempt(s).",
+                    job.Id, job.DocumentId, job.RetryCount);
+            }
+            else
+            {
+                // Document stays Processing — it's still being retried, not given up on yet.
+                logger.LogWarning(
+                    ex, "Processing job {JobId} for document {DocumentId} failed (attempt {RetryCount}/{MaxAttempts}), will retry.",
+                    job.Id, job.DocumentId, job.RetryCount, maxRetries + 1);
+            }
         }
 
         await db.SaveChangesAsync(cancellationToken);

@@ -114,4 +114,76 @@ public class ProcessingJobTests
 
         job.ErrorMessage.Should().HaveLength(ProcessingJob.MaxErrorMessageLength);
     }
+
+    [Fact]
+    public void RecordFailure_WhenRetryCountStaysAtOrBelowMaxRetries_GoesBackToPending()
+    {
+        var job = CreateValidJob();
+        var updatedAt = job.CreatedAt.AddMinutes(1);
+
+        job.RecordFailure("transient error", updatedAt, maxRetries: 2);
+
+        job.Status.Should().Be(ProcessingJobStatus.Pending);
+        job.RetryCount.Should().Be(1);
+        job.ErrorMessage.Should().Be("transient error");
+        job.UpdatedAt.Should().Be(updatedAt);
+    }
+
+    [Fact]
+    public void RecordFailure_WhenRetryCountExceedsMaxRetries_BecomesPermanentlyFailed()
+    {
+        var job = CreateValidJob();
+
+        job.RecordFailure("first", DateTimeOffset.UtcNow, maxRetries: 2);
+        job.RecordFailure("second", DateTimeOffset.UtcNow, maxRetries: 2);
+        job.RecordFailure("third", DateTimeOffset.UtcNow, maxRetries: 2);
+
+        job.Status.Should().Be(ProcessingJobStatus.Failed);
+        job.RetryCount.Should().Be(3);
+        job.ErrorMessage.Should().Be("third");
+    }
+
+    [Fact]
+    public void RecordFailure_WithMaxRetriesZero_FailsPermanentlyOnFirstFailure()
+    {
+        var job = CreateValidJob();
+
+        job.RecordFailure("no retries allowed", DateTimeOffset.UtcNow, maxRetries: 0);
+
+        job.Status.Should().Be(ProcessingJobStatus.Failed);
+        job.RetryCount.Should().Be(1);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void RecordFailure_WithEmptyErrorMessage_Throws(string errorMessage)
+    {
+        var job = CreateValidJob();
+
+        var act = () => job.RecordFailure(errorMessage, DateTimeOffset.UtcNow, maxRetries: 3);
+
+        act.Should().Throw<ArgumentException>().WithParameterName("errorMessage");
+    }
+
+    [Fact]
+    public void RecordFailure_WithNegativeMaxRetries_Throws()
+    {
+        var job = CreateValidJob();
+
+        var act = () => job.RecordFailure("boom", DateTimeOffset.UtcNow, maxRetries: -1);
+
+        act.Should().Throw<ArgumentOutOfRangeException>().WithParameterName("maxRetries");
+    }
+
+    [Fact]
+    public void RecordFailure_WithErrorMessageExceedingMaxLength_Truncates()
+    {
+        var job = CreateValidJob();
+        var tooLongMessage = new string('a', ProcessingJob.MaxErrorMessageLength + 100);
+
+        job.RecordFailure(tooLongMessage, DateTimeOffset.UtcNow, maxRetries: 3);
+
+        job.ErrorMessage.Should().HaveLength(ProcessingJob.MaxErrorMessageLength);
+    }
 }

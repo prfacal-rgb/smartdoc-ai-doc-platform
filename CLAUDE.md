@@ -325,6 +325,25 @@ Completado:
   archivo de test. Verificado además con un smoke test manual de punta a punta con la Api
   real: sin token → `401`, login con password incorrecta → `401`, login correcto → token,
   endpoint protegido con ese token → `200`.
+- **Retry granular de `ProcessingJob` (ver ADR 0018).** `Worker:MaxRetries` (default 3,
+  configurable) = reintentos después del intento inicial, no el total — con el default, un
+  job puede correr hasta 4 veces antes de quedar permanentemente `Failed`. Sin backoff
+  exponencial ni scheduling nuevo: un job que falla vuelve a `Pending` y el próximo poll del
+  `ProcessingJobPollingWorker` (mismo intervalo de siempre) lo retoma — `PROJECT.md` ya
+  dejaba "retries avanzados" como evolución post-MVP detrás de Hangfire/Quartz.
+  `ProcessingJob.RecordFailure` (nuevo, separado de `MarkAsFailed` que sigue reservado para
+  el caso irrecuperable "Document no existe") decide él mismo, comparando `RetryCount` contra
+  `maxRetries`, si vuelve a `Pending` o pasa a `Failed` — la entidad es dueña de la
+  transición, no el `ProcessingJobProcessor`. `Document` se queda en `Processing` mientras
+  hay reintentos en curso; recién pasa a `Failed` cuando el job se agota (sin agregar ningún
+  estado nuevo a `DocumentStatus`). 7 tests nuevos (116 totales), incluyendo un test de
+  integración que fuerza fallos reales contra MinIO (`StoragePath` nunca subido, sin mocks) y
+  verifica la progresión completa `Pending(1) → Pending(2) → Failed(3)`. Verificado además
+  con un smoke test manual: `SmartDoc.Worker` real, log en vivo mostrando "attempt 1/4" →
+  "attempt 2/4" → "attempt 3/4" → fallo permanente recién en el cuarto intento
+  (`RetryCount = 4`). Encontrado de paso: `SmartDoc.Worker` (Generic Host puro, no ASP.NET
+  Core) usa `DOTNET_ENVIRONMENT`, no `ASPNETCORE_ENVIRONMENT`, para cargar
+  `appsettings.Development.json` al correrlo suelto.
 
 Decisiones conscientes, no pendientes olvidados:
 - **Endpoints de `Users`** (registro, cambio de password) — deliberadamente fuera de scope
@@ -333,7 +352,6 @@ Decisiones conscientes, no pendientes olvidados:
 - **Sin revocación de tokens.** El claim `jti` se emite pero no se persiste ni se chequea
   contra ninguna lista — sin logout real; aceptable para un solo seed user (ver ADR 0017).
 
-Próximo paso: seguir con Fase 5 (Production polish). Candidatos ya identificados: retry
-granular de `ProcessingJob` (pendiente desde Fase 2), índice de similaridad de `pgvector` si
-el volumen de datos lo justifica (ADR 0016), y ajuste empírico del threshold de similaridad
-(`Rag:MaxRelevantDistance`, ADR 0016).
+Próximo paso: seguir con Fase 5 (Production polish). Candidatos ya identificados: índice de
+similaridad de `pgvector` si el volumen de datos lo justifica (ADR 0016), y ajuste empírico
+del threshold de similaridad (`Rag:MaxRelevantDistance`, ADR 0016).
