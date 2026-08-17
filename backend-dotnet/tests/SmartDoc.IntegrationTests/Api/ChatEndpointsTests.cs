@@ -14,7 +14,8 @@ namespace SmartDoc.IntegrationTests.Api;
 
 /// <summary>
 /// End-to-end tests for POST /api/chat and GET /api/chat/{id} against the real stack
-/// (Postgres, ai-service/Ollama for embeddings, ai-service/Groq for generation).
+/// (Postgres, ai-service/Ollama for embeddings, ai-service/Groq for generation), now behind
+/// auth (ADR 0017) — UserId comes from the bearer token's claims, not the request body.
 /// </summary>
 public class ChatEndpointsTests : IClassFixture<WebApplicationFactory<Program>>, IAsyncLifetime
 {
@@ -31,11 +32,13 @@ public class ChatEndpointsTests : IClassFixture<WebApplicationFactory<Program>>,
     public async Task InitializeAsync()
     {
         _client = _factory.CreateClient();
-        _testUser = new User(Guid.NewGuid(), $"user-{Guid.NewGuid():N}@example.com", DateTimeOffset.UtcNow);
+        _testUser = new User(Guid.NewGuid(), $"user-{Guid.NewGuid():N}@example.com", "test-password-hash", DateTimeOffset.UtcNow);
 
         await using var db = _dbFixture.CreateContext();
         db.Users.Add(_testUser);
         await db.SaveChangesAsync();
+
+        _client.AuthenticateAs(_factory, _testUser);
     }
 
     public async Task DisposeAsync()
@@ -50,10 +53,19 @@ public class ChatEndpointsTests : IClassFixture<WebApplicationFactory<Program>>,
     }
 
     [Fact]
+    public async Task PostChat_WithoutToken_ReturnsUnauthorized()
+    {
+        using var anonymousClient = _factory.CreateClient();
+
+        var response = await anonymousClient.PostAsJsonAsync("/api/chat", new ChatRequest("hello", null));
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
     public async Task PostChat_WithNoRelevantDocuments_ReturnsInsufficientContextAndNoSources()
     {
-        var response = await _client.PostAsJsonAsync(
-            "/api/chat", new ChatRequest(_testUser.Id, "What is the meaning of life?", null));
+        var response = await _client.PostAsJsonAsync("/api/chat", new ChatRequest("What is the meaning of life?", null));
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<ChatResponse>();
@@ -83,7 +95,7 @@ public class ChatEndpointsTests : IClassFixture<WebApplicationFactory<Program>>,
         }
 
         var response = await _client.PostAsJsonAsync(
-            "/api/chat", new ChatRequest(_testUser.Id, "What color is the sky at sunset in this document?", null));
+            "/api/chat", new ChatRequest("What color is the sky at sunset in this document?", null));
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<ChatResponse>();
@@ -103,17 +115,9 @@ public class ChatEndpointsTests : IClassFixture<WebApplicationFactory<Program>>,
     }
 
     [Fact]
-    public async Task PostChat_WithNonExistentUserId_ReturnsNotFound()
-    {
-        var response = await _client.PostAsJsonAsync("/api/chat", new ChatRequest(Guid.NewGuid(), "hello", null));
-
-        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
-    }
-
-    [Fact]
     public async Task PostChat_WithNonExistentConversationId_ReturnsNotFound()
     {
-        var response = await _client.PostAsJsonAsync("/api/chat", new ChatRequest(_testUser.Id, "hello", Guid.NewGuid()));
+        var response = await _client.PostAsJsonAsync("/api/chat", new ChatRequest("hello", Guid.NewGuid()));
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
@@ -121,7 +125,7 @@ public class ChatEndpointsTests : IClassFixture<WebApplicationFactory<Program>>,
     [Fact]
     public async Task PostChat_WithEmptyQuestion_ReturnsValidationProblem()
     {
-        var response = await _client.PostAsJsonAsync("/api/chat", new ChatRequest(_testUser.Id, "", null));
+        var response = await _client.PostAsJsonAsync("/api/chat", new ChatRequest("", null));
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
@@ -129,11 +133,11 @@ public class ChatEndpointsTests : IClassFixture<WebApplicationFactory<Program>>,
     [Fact]
     public async Task PostChat_WithSameConversationIdTwice_AppendsToSameConversation()
     {
-        var firstResponse = await _client.PostAsJsonAsync("/api/chat", new ChatRequest(_testUser.Id, "hello", null));
+        var firstResponse = await _client.PostAsJsonAsync("/api/chat", new ChatRequest("hello", null));
         var first = await firstResponse.Content.ReadFromJsonAsync<ChatResponse>();
 
         var secondResponse = await _client.PostAsJsonAsync(
-            "/api/chat", new ChatRequest(_testUser.Id, "how are you?", first!.ConversationId));
+            "/api/chat", new ChatRequest("how are you?", first!.ConversationId));
         var second = await secondResponse.Content.ReadFromJsonAsync<ChatResponse>();
 
         second!.ConversationId.Should().Be(first.ConversationId);
@@ -146,7 +150,7 @@ public class ChatEndpointsTests : IClassFixture<WebApplicationFactory<Program>>,
     [Fact]
     public async Task GetConversation_AfterChat_ReturnsMessageHistory()
     {
-        var chatResponse = await _client.PostAsJsonAsync("/api/chat", new ChatRequest(_testUser.Id, "hello there", null));
+        var chatResponse = await _client.PostAsJsonAsync("/api/chat", new ChatRequest("hello there", null));
         var chat = await chatResponse.Content.ReadFromJsonAsync<ChatResponse>();
 
         var response = await _client.GetAsync($"/api/chat/{chat!.ConversationId}");
@@ -164,5 +168,40 @@ public class ChatEndpointsTests : IClassFixture<WebApplicationFactory<Program>>,
         var response = await _client.GetAsync($"/api/chat/{Guid.NewGuid()}");
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task GetConversation_BelongingToAnotherUser_ReturnsNotFound()
+    {
+        var otherUser = new User(Guid.NewGuid(), $"other-{Guid.NewGuid():N}@example.com", "test-password-hash", DateTimeOffset.UtcNow);
+
+        await using (var db = _dbFixture.CreateContext())
+        {
+            db.Users.Add(otherUser);
+            await db.SaveChangesAsync();
+        }
+
+        try
+        {
+            using var otherClient = _factory.CreateClient();
+            otherClient.AuthenticateAs(_factory, otherUser);
+
+            var chatResponse = await otherClient.PostAsJsonAsync("/api/chat", new ChatRequest("hello from another user", null));
+            var chat = await chatResponse.Content.ReadFromJsonAsync<ChatResponse>();
+
+            // _client is authenticated as _testUser, not otherUser — should not see it.
+            var response = await _client.GetAsync($"/api/chat/{chat!.ConversationId}");
+
+            response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        }
+        finally
+        {
+            await using var cleanupDb = _dbFixture.CreateContext();
+            var conversations = await cleanupDb.Conversations.Where(c => c.UserId == otherUser.Id).ToListAsync();
+            cleanupDb.Conversations.RemoveRange(conversations);
+            await cleanupDb.SaveChangesAsync();
+            cleanupDb.Users.Remove(otherUser);
+            await cleanupDb.SaveChangesAsync();
+        }
     }
 }

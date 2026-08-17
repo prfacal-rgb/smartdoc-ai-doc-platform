@@ -1,7 +1,9 @@
+using System.Security.Claims;
 using FluentValidation;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using SmartDoc.Api.Features.Auth;
 using SmartDoc.Application.Storage;
 using SmartDoc.Domain.Entities;
 using SmartDoc.Infrastructure.Persistence;
@@ -12,7 +14,10 @@ public static class DocumentEndpoints
 {
     public static void MapDocumentEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/documents").WithTags("Documents");
+        // Shared knowledge base, not per-user isolation (see ADR 0017): any authenticated
+        // user can see/delete any document, not just their own. RequireAuthorization() only
+        // gates "are you logged in", nothing finer-grained.
+        var group = app.MapGroup("/api/documents").WithTags("Documents").RequireAuthorization();
 
         // File-upload endpoints get anti-forgery metadata attached automatically since
         // .NET 8 (ASP.NET Core requires app.UseAntiforgery() otherwise). Not needed here:
@@ -23,14 +28,15 @@ public static class DocumentEndpoints
         group.MapDelete("/{id:guid}", DeleteDocumentAsync);
     }
 
-    private static async Task<Results<Accepted<DocumentResponse>, ValidationProblem, NotFound<ProblemDetails>>> CreateDocumentAsync(
+    private static async Task<Results<Accepted<DocumentResponse>, ValidationProblem>> CreateDocumentAsync(
         IFormFile file,
-        [FromForm] Guid userId,
+        ClaimsPrincipal claimsPrincipal,
         IValidator<CreateDocumentRequest> validator,
         SmartDocDbContext db,
         IFileStorage fileStorage,
         CancellationToken cancellationToken)
     {
+        var userId = claimsPrincipal.GetUserId();
         var request = new CreateDocumentRequest(userId, file);
         var validationResult = await validator.ValidateAsync(request, cancellationToken);
         if (!validationResult.IsValid)
@@ -38,16 +44,10 @@ public static class DocumentEndpoints
             return TypedResults.ValidationProblem(validationResult.ToDictionary());
         }
 
-        var userExists = await db.Users.AnyAsync(u => u.Id == userId, cancellationToken);
-        if (!userExists)
-        {
-            return TypedResults.NotFound(new ProblemDetails
-            {
-                Title = "User not found",
-                Detail = $"No user exists with id '{userId}'.",
-            });
-        }
-
+        // No "does this user exist" check anymore (ADR 0017): userId now comes from a
+        // validated JWT, only ever issued after a real login — the check is unreachable in
+        // practice given Users are never hard-deleted (ADR 0006's Restrict FK + logical
+        // delete plan). Revisit if that invariant ever changes.
         var fileName = Path.GetFileName(file.FileName);
 
         await using var stream = file.OpenReadStream();

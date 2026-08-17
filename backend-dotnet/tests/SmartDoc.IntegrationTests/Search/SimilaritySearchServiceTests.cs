@@ -29,7 +29,7 @@ public class SimilaritySearchServiceTests : IClassFixture<DatabaseFixture>
     [Fact]
     public async Task SearchAsync_ReturnsChunksOrderedByAscendingDistance()
     {
-        var user = new User(Guid.NewGuid(), $"user-{Guid.NewGuid():N}@example.com", DateTimeOffset.UtcNow);
+        var user = new User(Guid.NewGuid(), $"user-{Guid.NewGuid():N}@example.com", "test-password-hash", DateTimeOffset.UtcNow);
         var document = new Document(
             Guid.NewGuid(), user.Id, "report.pdf", "application/pdf", $"/storage/{Guid.NewGuid():N}.pdf", DateTimeOffset.UtcNow);
 
@@ -78,7 +78,7 @@ public class SimilaritySearchServiceTests : IClassFixture<DatabaseFixture>
     [Fact]
     public async Task SearchAsync_RespectsTopKLimit()
     {
-        var user = new User(Guid.NewGuid(), $"user-{Guid.NewGuid():N}@example.com", DateTimeOffset.UtcNow);
+        var user = new User(Guid.NewGuid(), $"user-{Guid.NewGuid():N}@example.com", "test-password-hash", DateTimeOffset.UtcNow);
         var document = new Document(
             Guid.NewGuid(), user.Id, "report.pdf", "application/pdf", $"/storage/{Guid.NewGuid():N}.pdf", DateTimeOffset.UtcNow);
         var chunks = Enumerable.Range(0, 5)

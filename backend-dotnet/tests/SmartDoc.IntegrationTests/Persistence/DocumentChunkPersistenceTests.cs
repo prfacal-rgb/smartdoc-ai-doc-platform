@@ -32,7 +32,7 @@ public class DocumentChunkPersistenceTests : IClassFixture<DatabaseFixture>
     [Fact]
     public async Task SaveChanges_PersistsDocumentChunk_RoundTripsEmbeddingAndMetadata()
     {
-        var user = new User(Guid.NewGuid(), $"user-{Guid.NewGuid():N}@example.com", DateTimeOffset.UtcNow);
+        var user = new User(Guid.NewGuid(), $"user-{Guid.NewGuid():N}@example.com", "test-password-hash", DateTimeOffset.UtcNow);
         var document = new Document(
             Guid.NewGuid(), user.Id, "report.pdf", "application/pdf", $"/storage/{Guid.NewGuid():N}.pdf", DateTimeOffset.UtcNow);
         var embedding = SampleEmbedding();
@@ -71,7 +71,7 @@ public class DocumentChunkPersistenceTests : IClassFixture<DatabaseFixture>
     [Fact]
     public async Task SaveChanges_DuplicateChunkIndexForSameDocument_ThrowsDbUpdateException()
     {
-        var user = new User(Guid.NewGuid(), $"user-{Guid.NewGuid():N}@example.com", DateTimeOffset.UtcNow);
+        var user = new User(Guid.NewGuid(), $"user-{Guid.NewGuid():N}@example.com", "test-password-hash", DateTimeOffset.UtcNow);
         var document = new Document(
             Guid.NewGuid(), user.Id, "report.pdf", "application/pdf", $"/storage/{Guid.NewGuid():N}.pdf", DateTimeOffset.UtcNow);
         var chunk1 = new DocumentChunk(Guid.NewGuid(), document.Id, 0, 1, "first", "nomic-embed-text", SampleEmbedding(), DateTimeOffset.UtcNow);
@@ -115,7 +115,7 @@ public class DocumentChunkPersistenceTests : IClassFixture<DatabaseFixture>
     [Fact]
     public async Task DeletingDocument_CascadeDeletesItsChunks()
     {
-        var user = new User(Guid.NewGuid(), $"user-{Guid.NewGuid():N}@example.com", DateTimeOffset.UtcNow);
+        var user = new User(Guid.NewGuid(), $"user-{Guid.NewGuid():N}@example.com", "test-password-hash", DateTimeOffset.UtcNow);
         var document = new Document(
             Guid.NewGuid(), user.Id, "report.pdf", "application/pdf", $"/storage/{Guid.NewGuid():N}.pdf", DateTimeOffset.UtcNow);
         var chunk = new DocumentChunk(Guid.NewGuid(), document.Id, 0, 1, "text", "nomic-embed-text", SampleEmbedding(), DateTimeOffset.UtcNow);

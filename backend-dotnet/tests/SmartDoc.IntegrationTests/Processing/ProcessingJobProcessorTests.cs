@@ -38,7 +38,7 @@ public class ProcessingJobProcessorTests : IClassFixture<DatabaseFixture>
     [Fact]
     public async Task ProcessNextAsync_WithRealPdf_ParsesChunksEmbedsAndPersistsChunks()
     {
-        var user = new User(Guid.NewGuid(), $"user-{Guid.NewGuid():N}@example.com", DateTimeOffset.UtcNow);
+        var user = new User(Guid.NewGuid(), $"user-{Guid.NewGuid():N}@example.com", "test-password-hash", DateTimeOffset.UtcNow);
 
         var fileStorage = new MinioFileStorage(CreateS3Client(), BucketName);
         var pdfBytes = await File.ReadAllBytesAsync(Path.Combine(AppContext.BaseDirectory, "Fixtures", "sample.pdf"));

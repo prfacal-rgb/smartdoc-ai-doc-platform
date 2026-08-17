@@ -17,6 +17,12 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         builder.HasIndex(u => u.Email)
             .IsUnique();
 
+        // No max length: PasswordHasher<User>'s PBKDF2 output format could grow if its
+        // default parameters change in a future version — unbounded text avoids coupling
+        // the schema to today's exact hash length.
+        builder.Property(u => u.PasswordHash)
+            .IsRequired();
+
         builder.Property(u => u.CreatedAt)
             .IsRequired();
     }

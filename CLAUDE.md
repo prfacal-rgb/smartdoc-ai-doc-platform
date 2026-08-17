@@ -188,7 +188,7 @@ señalarlo explícitamente en la respuesta y preguntar antes de implementar.
 ## Estado actual
 
 **Fases 1-4 cerradas (Backend foundation, Async processing, AI pipeline, RAG). Fase 5
-(Production polish) sin arrancar todavía.**
+(Production polish) en progreso — Auth (JWT) implementado.**
 
 Completado:
 - Entorno de desarrollo operativo: Docker Desktop + WSL2, `docker compose up -d` levanta
@@ -280,13 +280,16 @@ Completado:
 - **Fase 4 (en progreso) — `/generate` con Groq (ver ADR 0014):** Ollama local descartado
   para generación con datos reales (40.67s para 35 tokens, ~0.87 tok/s — inviable para un
   endpoint síncrono/user-facing, a diferencia de `/embed` que corre en background). Groq
-  (`llama-3.3-70b-versatile`): 0.47s totales, ~330 tok/s, gratis. `LlmProvider` (ABC) mismo
-  patrón que `EmbeddingProvider`. Citas NO delegadas al LLM — `/generate` solo recibe texto
-  plano de contexto y devuelve la respuesta; .NET arma "Sources:" desde su propia metadata
-  de retrieval (`FileName`/`PageNumber`), sin confiar en que el LLM cite bien. Encontrado y
-  resuelto: la API de Groq (detrás de Cloudflare) rechaza requests sin `User-Agent` normal
-  (error 1010, no es un error de auth). 4 tests nuevos, verificado también con el contenedor
-  Docker real (env vars resueltas desde `.env` de la raíz vía `docker-compose.yml`).
+  (`llama-3.3-70b-versatile` originalmente): 0.47s totales, ~330 tok/s, gratis. `LlmProvider`
+  (ABC) mismo patrón que `EmbeddingProvider`. Citas NO delegadas al LLM — `/generate` solo
+  recibe texto plano de contexto y devuelve la respuesta; .NET arma "Sources:" desde su propia
+  metadata de retrieval (`FileName`/`PageNumber`), sin confiar en que el LLM cite bien.
+  Encontrado y resuelto: la API de Groq (detrás de Cloudflare) rechaza requests sin
+  `User-Agent` normal (error 1010, no es un error de auth). 4 tests nuevos, verificado también
+  con el contenedor Docker real (env vars resueltas desde `.env` de la raíz vía
+  `docker-compose.yml`). **Actualizado más tarde (durante Fase 5):** Groq deprecó
+  `llama-3.3-70b-versatile` de su catálogo; reemplazado por `openai/gpt-oss-120b`
+  (`GROQ_MODEL` en `.env`/`config.py`) tras comparar en vivo contra `openai/gpt-oss-20b`.
 - **`Conversations`/`Messages` (ver ADR 0015).** Citas guardadas como parte de `Content`
   (prosa + "Sources:"), no en tabla separada — `PROJECT.md` no la pide. FKs siguiendo
   precedentes ya establecidos: `Conversation → User` `Restrict` (ADR 0006), `Message →
@@ -302,17 +305,35 @@ Completado:
   tiempo/costo). 13 tests nuevos (96 tests totales del lado .NET en Fase 4). Verificado
   además con un smoke test manual completo: Api real + Worker real + `/api/chat` real
   citando correctamente el documento procesado.
+- **Fase 5 (en progreso) — Auth (JWT) (ver ADR 0017).** Passwords hasheados en `Users.
+  PasswordHash` con `PasswordHasher<User>` (PBKDF2, `Microsoft.Extensions.Identity.Core`),
+  resincronizados en cada arranque de la Api por `SmartDocDbContextSeeder`. `POST
+  /api/auth/login` devuelve un JWT (HMAC-SHA256, claims `sub`/`email`/`jti`,
+  `Jwt:ExpirationMinutes` configurable) — mismo `401` si el email no existe o la password es
+  incorrecta, para no permitir enumerar usuarios registrados. `DocumentEndpoints`/
+  `ChatEndpoints`/`SearchEndpoints` ahora requieren `Authorization: Bearer <token>`
+  (`RequireAuthorization()`) y derivan `UserId` del claim `sub` vía
+  `ClaimsPrincipal.GetUserId()`, no del body/form — el chequeo "¿existe este UserId?" que
+  existía antes se eliminó por quedar inalcanzable. `Documents` sigue siendo una base de
+  conocimiento compartida (cualquier usuario ve/borra cualquier documento); `Conversations`
+  pasó a ser personal (`GetConversationAsync` exige `UserId` del dueño, `404` sin distinguir
+  "no existe" de "es de otro usuario"). Encontrado y resuelto en el camino: sin
+  `MapInboundClaims = false` en `AddJwtBearer`, ASP.NET Core remapea `sub`/`email` a URIs
+  largas de WS-Federation al construir el `ClaimsPrincipal`, rompiendo la lectura del claim
+  por nombre corto. 17 tests nuevos (108 tests totales), `AuthTestHelper.AuthenticateAs`
+  mintea tokens directo vía `JwtTokenGenerator` para no repetir el flujo de login en cada
+  archivo de test. Verificado además con un smoke test manual de punta a punta con la Api
+  real: sin token → `401`, login con password incorrecta → `401`, login correcto → token,
+  endpoint protegido con ese token → `200`.
 
-Decisiones conscientes, no pendientes olvidados (ver ADR 0008):
-- **Auth (JWT) diferida a Fase 5.** El seed user actual es solo un insert de bootstrap, no
-  autenticación. Mientras tanto, cualquier endpoint que reciba `UserId` (`Documents`,
-  `Chat`) lo toma del cliente sin validar identidad — riesgo interino aceptado y
-  documentado, no un descuido. Al llegar a Fase 5: implementar login + proteger
-  retroactivamente todos los endpoints construidos hasta ese momento.
-- **Endpoints de `Users`** — deliberadamente fuera de scope hasta que se implemente auth
-  (ver ADR 0007); no tienen caso de uso propio sin login real.
+Decisiones conscientes, no pendientes olvidados:
+- **Endpoints de `Users`** (registro, cambio de password) — deliberadamente fuera de scope
+  (ver ADR 0007): el único usuario del MVP sigue siendo el seed user gestionado por config,
+  sin registro público ni flujo de reset de password.
+- **Sin revocación de tokens.** El claim `jti` se emite pero no se persiste ni se chequea
+  contra ninguna lista — sin logout real; aceptable para un solo seed user (ver ADR 0017).
 
-Próximo paso: Fase 5 (Production polish) — sin arrancar todavía. Candidatos ya identificados:
-auth (JWT, ADR 0008), retry granular de `ProcessingJob` (pendiente desde Fase 2), índice de
-similaridad de `pgvector` si el volumen de datos lo justifica (ADR 0016), y ajuste empírico
-del threshold de similaridad (`Rag:MaxRelevantDistance`, ADR 0016).
+Próximo paso: seguir con Fase 5 (Production polish). Candidatos ya identificados: retry
+granular de `ProcessingJob` (pendiente desde Fase 2), índice de similaridad de `pgvector` si
+el volumen de datos lo justifica (ADR 0016), y ajuste empírico del threshold de similaridad
+(`Rag:MaxRelevantDistance`, ADR 0016).

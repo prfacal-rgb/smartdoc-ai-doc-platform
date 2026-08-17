@@ -24,7 +24,11 @@ class Settings(BaseSettings):
     # /generate is synchronous/user-facing, unlike /embed which runs in the background Worker.
     llm_provider: str = "groq"
     groq_api_key: str = ""
-    groq_model: str = "llama-3.3-70b-versatile"
+    # llama-3.3-70b-versatile (used when this was first wired up, ADR 0014) was retired from
+    # Groq's catalog since — model availability on hosted providers isn't permanent, worth
+    # remembering when picking one. openai/gpt-oss-120b confirmed working: ~0.74s, good
+    # quality, full completion (gpt-oss-20b truncated oddly in the same test).
+    groq_model: str = "openai/gpt-oss-120b"
     groq_base_url: str = "https://api.groq.com/openai/v1"
 
 

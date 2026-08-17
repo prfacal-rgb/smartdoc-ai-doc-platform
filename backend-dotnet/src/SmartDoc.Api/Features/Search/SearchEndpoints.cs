@@ -9,7 +9,7 @@ public static class SearchEndpoints
 {
     public static void MapSearchEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapPost("/api/search", SearchAsync).WithTags("Search");
+        app.MapPost("/api/search", SearchAsync).WithTags("Search").RequireAuthorization();
     }
 
     private static async Task<Results<Ok<SearchResponse>, ValidationProblem>> SearchAsync(

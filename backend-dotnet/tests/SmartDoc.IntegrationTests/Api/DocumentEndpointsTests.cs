@@ -13,10 +13,10 @@ using SmartDoc.IntegrationTests.Persistence;
 namespace SmartDoc.IntegrationTests.Api;
 
 /// <summary>
-/// End-to-end tests against the real Minimal API pipeline (routing, validation, EF Core,
-/// Postgres, MinIO) via WebApplicationFactory. Each test gets its own throwaway User created
-/// directly through SmartDocDbContext (there is no Users endpoint by design), and cleans up
-/// everything it created (DB rows and any uploaded object storage content).
+/// End-to-end tests against the real Minimal API pipeline (routing, auth, validation, EF
+/// Core, Postgres, MinIO) via WebApplicationFactory. Each test gets its own throwaway User
+/// created directly through SmartDocDbContext (there is no Users endpoint by design), and
+/// cleans up everything it created (DB rows and any uploaded object storage content).
 /// </summary>
 public class DocumentEndpointsTests : IClassFixture<WebApplicationFactory<Program>>, IAsyncLifetime
 {
@@ -34,11 +34,13 @@ public class DocumentEndpointsTests : IClassFixture<WebApplicationFactory<Progra
     {
         _client = _factory.CreateClient();
 
-        _testUser = new User(Guid.NewGuid(), $"user-{Guid.NewGuid():N}@example.com", DateTimeOffset.UtcNow);
+        _testUser = new User(Guid.NewGuid(), $"user-{Guid.NewGuid():N}@example.com", "test-password-hash", DateTimeOffset.UtcNow);
 
         await using var db = _dbFixture.CreateContext();
         db.Users.Add(_testUser);
         await db.SaveChangesAsync();
+
+        _client.AuthenticateAs(_factory, _testUser);
     }
 
     public async Task DisposeAsync()
@@ -64,12 +66,9 @@ public class DocumentEndpointsTests : IClassFixture<WebApplicationFactory<Progra
     }
 
     private static MultipartFormDataContent CreatePdfUploadContent(
-        Guid userId, string fileName = "report.pdf", string contentType = "application/pdf", string text = "%PDF-1.4 fake content")
+        string fileName = "report.pdf", string contentType = "application/pdf", string text = "%PDF-1.4 fake content")
     {
-        var content = new MultipartFormDataContent
-        {
-            { new StringContent(userId.ToString()), "userId" },
-        };
+        var content = new MultipartFormDataContent();
 
         var fileContent = new ByteArrayContent(System.Text.Encoding.UTF8.GetBytes(text));
         fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(contentType);
@@ -79,9 +78,20 @@ public class DocumentEndpointsTests : IClassFixture<WebApplicationFactory<Progra
     }
 
     [Fact]
+    public async Task PostDocuments_WithoutToken_ReturnsUnauthorized()
+    {
+        using var anonymousClient = _factory.CreateClient();
+        using var content = CreatePdfUploadContent();
+
+        var response = await anonymousClient.PostAsync("/api/documents", content);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
     public async Task PostDocuments_WithValidRequest_ReturnsAcceptedWithLocationAndBody()
     {
-        using var content = CreatePdfUploadContent(_testUser.Id);
+        using var content = CreatePdfUploadContent();
 
         var response = await _client.PostAsync("/api/documents", content);
 
@@ -98,7 +108,7 @@ public class DocumentEndpointsTests : IClassFixture<WebApplicationFactory<Progra
     [Fact]
     public async Task PostDocuments_WithValidRequest_CreatesAPendingProcessingJob()
     {
-        using var content = CreatePdfUploadContent(_testUser.Id);
+        using var content = CreatePdfUploadContent();
 
         var response = await _client.PostAsync("/api/documents", content);
         var created = await response.Content.ReadFromJsonAsync<DocumentResponse>();
@@ -114,7 +124,7 @@ public class DocumentEndpointsTests : IClassFixture<WebApplicationFactory<Progra
     public async Task PostDocuments_WithValidRequest_SavesFileContentToObjectStorage()
     {
         const string fileText = "%PDF-1.4 smoke test content";
-        using var content = CreatePdfUploadContent(_testUser.Id, text: fileText);
+        using var content = CreatePdfUploadContent(text: fileText);
 
         var response = await _client.PostAsync("/api/documents", content);
         var created = await response.Content.ReadFromJsonAsync<DocumentResponse>();
@@ -130,7 +140,7 @@ public class DocumentEndpointsTests : IClassFixture<WebApplicationFactory<Progra
     [Fact]
     public async Task PostDocuments_WithNonPdfContentType_ReturnsValidationProblem()
     {
-        using var content = CreatePdfUploadContent(_testUser.Id, fileName: "report.txt", contentType: "text/plain");
+        using var content = CreatePdfUploadContent(fileName: "report.txt", contentType: "text/plain");
 
         var response = await _client.PostAsync("/api/documents", content);
 
@@ -140,7 +150,7 @@ public class DocumentEndpointsTests : IClassFixture<WebApplicationFactory<Progra
     [Fact]
     public async Task PostDocuments_WithEmptyFile_ReturnsValidationProblem()
     {
-        using var content = CreatePdfUploadContent(_testUser.Id, text: "");
+        using var content = CreatePdfUploadContent(text: "");
 
         var response = await _client.PostAsync("/api/documents", content);
 
@@ -148,19 +158,9 @@ public class DocumentEndpointsTests : IClassFixture<WebApplicationFactory<Progra
     }
 
     [Fact]
-    public async Task PostDocuments_WithNonExistentUserId_ReturnsNotFound()
-    {
-        using var content = CreatePdfUploadContent(Guid.NewGuid());
-
-        var response = await _client.PostAsync("/api/documents", content);
-
-        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
-    }
-
-    [Fact]
     public async Task GetDocumentById_AfterCreate_ReturnsSameDocument()
     {
-        using var content = CreatePdfUploadContent(_testUser.Id);
+        using var content = CreatePdfUploadContent();
         var createResponse = await _client.PostAsync("/api/documents", content);
         var created = await createResponse.Content.ReadFromJsonAsync<DocumentResponse>();
 
@@ -182,7 +182,7 @@ public class DocumentEndpointsTests : IClassFixture<WebApplicationFactory<Progra
     [Fact]
     public async Task GetDocuments_AfterCreate_ContainsCreatedDocument()
     {
-        using var content = CreatePdfUploadContent(_testUser.Id);
+        using var content = CreatePdfUploadContent();
         var createResponse = await _client.PostAsync("/api/documents", content);
         var created = await createResponse.Content.ReadFromJsonAsync<DocumentResponse>();
 
@@ -196,7 +196,7 @@ public class DocumentEndpointsTests : IClassFixture<WebApplicationFactory<Progra
     [Fact]
     public async Task DeleteDocument_AfterCreate_RemovesItAndSubsequentGetReturnsNotFound()
     {
-        using var content = CreatePdfUploadContent(_testUser.Id);
+        using var content = CreatePdfUploadContent();
         var createResponse = await _client.PostAsync("/api/documents", content);
         var created = await createResponse.Content.ReadFromJsonAsync<DocumentResponse>();
 
@@ -210,7 +210,7 @@ public class DocumentEndpointsTests : IClassFixture<WebApplicationFactory<Progra
     [Fact]
     public async Task DeleteDocument_AfterCreate_AlsoRemovesFileFromObjectStorage()
     {
-        using var content = CreatePdfUploadContent(_testUser.Id);
+        using var content = CreatePdfUploadContent();
         var createResponse = await _client.PostAsync("/api/documents", content);
         var created = await createResponse.Content.ReadFromJsonAsync<DocumentResponse>();
 
