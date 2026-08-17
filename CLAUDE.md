@@ -85,7 +85,7 @@ estable — no crear la carpeta antes de eso.
 3. **AI pipeline** — Servicio Python (parse/chunk/embed) + integración con .NET Worker.
    *(cerrada — ver "Estado actual")*
 4. **RAG** — Retrieval + construcción de contexto + generación + citas.
-   *(en progreso — ver "Estado actual")*
+   *(cerrada — ver "Estado actual")*
 5. **Production polish** — Tests, logs, Docker Compose completo, manejo de errores,
    documentación. No agregar features nuevas en esta fase.
 6. **Frontend** (post-MVP) — a evaluar tecnología cuando llegue el momento.
@@ -187,7 +187,8 @@ señalarlo explícitamente en la respuesta y preguntar antes de implementar.
 
 ## Estado actual
 
-**Fases 1-3 cerradas (Backend foundation, Async processing, AI pipeline). Fase actual: 4 — RAG.**
+**Fases 1-4 cerradas (Backend foundation, Async processing, AI pipeline, RAG). Fase 5
+(Production polish) sin arrancar todavía.**
 
 Completado:
 - Entorno de desarrollo operativo: Docker Desktop + WSL2, `docker compose up -d` levanta
@@ -290,19 +291,28 @@ Completado:
   (prosa + "Sources:"), no en tabla separada — `PROJECT.md` no la pide. FKs siguiendo
   precedentes ya establecidos: `Conversation → User` `Restrict` (ADR 0006), `Message →
   Conversation` `Cascade` (ADR 0009). 12 tests nuevos.
+- **Similarity search + `POST /api/search`/`POST /api/chat`/`GET /api/chat/{conversationId}`
+  (ver ADR 0016) — Fase 4 cerrada.** `SimilaritySearchService` con SQL crudo (operador
+  coseno `<=>` de pgvector vía `Database.SqlQuery<T>`), sin interfaz (SQL específico de
+  Postgres, no hay implementación alternativa que abstraer). Sin índice de similaridad
+  todavía — sequential scan alcanza a escala de PoC, se agrega si el volumen lo justifica.
+  `Rag:MaxRelevantDistance = 0.75` como threshold de partida, explícitamente pendiente de
+  ajuste empírico (`PROJECT.md` lo describe como "configurable"). Si nada pasa el
+  threshold, .NET devuelve "insufficient context" sin llamar a `/generate` (ahorra
+  tiempo/costo). 13 tests nuevos (96 tests totales del lado .NET en Fase 4). Verificado
+  además con un smoke test manual completo: Api real + Worker real + `/api/chat` real
+  citando correctamente el documento procesado.
 
 Decisiones conscientes, no pendientes olvidados (ver ADR 0008):
 - **Auth (JWT) diferida a Fase 5.** El seed user actual es solo un insert de bootstrap, no
-  autenticación. Mientras tanto, cualquier endpoint que reciba `UserId` (hoy `Documents`, y
-  los que se agreguen en Fases 2-4) lo toma del cliente sin validar identidad — riesgo
-  interino aceptado y documentado, no un descuido. Al llegar a Fase 5: implementar login +
-  proteger retroactivamente todos los endpoints construidos hasta ese momento.
+  autenticación. Mientras tanto, cualquier endpoint que reciba `UserId` (`Documents`,
+  `Chat`) lo toma del cliente sin validar identidad — riesgo interino aceptado y
+  documentado, no un descuido. Al llegar a Fase 5: implementar login + proteger
+  retroactivamente todos los endpoints construidos hasta ese momento.
 - **Endpoints de `Users`** — deliberadamente fuera de scope hasta que se implemente auth
   (ver ADR 0007); no tienen caso de uso propio sin login real.
 
-Próximo paso: similarity search en .NET contra `pgvector` (top-K configurable, PROJECT.md
-sugiere 5 — falta el índice de similaridad, pendiente desde ADR 0004), y los endpoints
-`POST /api/search`/`POST /api/chat`/`GET /api/chat/{conversationId}` que unen retrieval +
-`/generate` + citas. También es el punto natural para retomar retry granular de
-`ProcessingJob` si aparecen fallos reales
-recurrentes.
+Próximo paso: Fase 5 (Production polish) — sin arrancar todavía. Candidatos ya identificados:
+auth (JWT, ADR 0008), retry granular de `ProcessingJob` (pendiente desde Fase 2), índice de
+similaridad de `pgvector` si el volumen de datos lo justifica (ADR 0016), y ajuste empírico
+del threshold de similaridad (`Rag:MaxRelevantDistance`, ADR 0016).

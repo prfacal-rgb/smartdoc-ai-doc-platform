@@ -7,6 +7,7 @@ using SmartDoc.Application.Storage;
 using SmartDoc.Infrastructure.AiService;
 using SmartDoc.Infrastructure.Persistence;
 using SmartDoc.Infrastructure.Processing;
+using SmartDoc.Infrastructure.Search;
 using SmartDoc.Infrastructure.Storage;
 
 namespace SmartDoc.Infrastructure;
@@ -23,6 +24,7 @@ public static class DependencyInjection
             options.UseNpgsql(connectionString, o => o.UseVector()));
 
         services.AddScoped<ProcessingJobProcessor>();
+        services.AddScoped<SimilaritySearchService>();
 
         AddFileStorage(services, configuration);
         AddAiServiceClient(services, configuration);

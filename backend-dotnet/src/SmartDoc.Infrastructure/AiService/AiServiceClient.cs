@@ -53,6 +53,18 @@ public class AiServiceClient(HttpClient httpClient) : IAiServiceClient
         return new EmbedResult(embeddings, body.Model, body.Dimensions);
     }
 
+    public async Task<GenerateResult> GenerateAsync(
+        string question, IReadOnlyList<string> contextChunks, CancellationToken cancellationToken = default)
+    {
+        var request = new GenerateRequestDto(question, contextChunks.ToList());
+
+        using var response = await httpClient.PostAsJsonAsync("/generate", request, JsonOptions, cancellationToken);
+        response.EnsureSuccessStatusCode();
+
+        var body = await response.Content.ReadFromJsonAsync<GenerateResponseDto>(JsonOptions, cancellationToken);
+        return new GenerateResult(body!.Answer, body.Model);
+    }
+
     private sealed record ParsedPageDto(int PageNumber, string Text);
     private sealed record ParseResponseDto(List<ParsedPageDto> Pages);
 
@@ -62,4 +74,7 @@ public class AiServiceClient(HttpClient httpClient) : IAiServiceClient
 
     private sealed record EmbedRequestDto(List<string> Texts);
     private sealed record EmbedResponseDto(List<List<float>> Embeddings, string Model, int Dimensions);
+
+    private sealed record GenerateRequestDto(string Question, List<string> ContextChunks);
+    private sealed record GenerateResponseDto(string Answer, string Model);
 }
