@@ -38,9 +38,18 @@ public class DocumentChunkConfiguration : IEntityTypeConfiguration<DocumentChunk
         builder.HasIndex(c => c.DocumentId);
         builder.HasIndex(c => new { c.DocumentId, c.ChunkIndex }).IsUnique();
 
+        // HNSW over ivfflat: builds incrementally as rows are inserted, so it doesn't need
+        // representative data present at CREATE INDEX time the way ivfflat's k-means-based
+        // list clustering does (a real pitfall here — this table starts empty and grows one
+        // document at a time). vector_cosine_ops matches the <=> operator SimilaritySearchService
+        // already queries with (ADR 0016). m/ef_construction left at pgvector's defaults —
+        // no real query volume yet to tune them against. See ADR 0019.
+        builder.HasIndex(c => c.Embedding)
+            .HasMethod("hnsw")
+            .HasOperators("vector_cosine_ops");
+
         // Cascade, same reasoning as ProcessingJob -> Document (ADR 0009): a chunk has no
-        // meaning without its document. No similarity index yet (ivfflat/hnsw) — nothing
-        // queries by similarity until Phase 4 (RAG); see ADR 0004.
+        // meaning without its document.
         builder.HasOne<Document>()
             .WithMany()
             .HasForeignKey(c => c.DocumentId)

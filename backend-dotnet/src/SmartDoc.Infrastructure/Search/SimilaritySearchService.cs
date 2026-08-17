@@ -9,12 +9,12 @@ public sealed record SimilarChunk(
 
 /// <summary>
 /// Cosine-distance nearest-neighbor search against DocumentChunks.Embedding, via raw SQL
-/// (ADR 0004 anticipated this). No similarity index (ivfflat/hnsw) yet — a sequential scan
-/// is fast enough at PoC data volumes, and tuning index parameters without real usage
-/// patterns to calibrate against would be guesswork; add one if/when data volume justifies
-/// it. Not abstracted behind an interface — this is Postgres/pgvector-specific SQL with no
-/// swappable implementation, unlike the genuinely pluggable providers (IFileStorage,
-/// IAiServiceClient).
+/// (ADR 0004 anticipated this). Backed by an HNSW index (vector_cosine_ops, matching the
+/// `<=>` operator below) since ADR 0019 — the query itself is unchanged by that; the planner
+/// picks the index automatically once row counts make it worthwhile, seq-scanning small
+/// tables regardless (that's expected, not a bug — see ADR 0019 for how it was verified). Not
+/// abstracted behind an interface — this is Postgres/pgvector-specific SQL with no swappable
+/// implementation, unlike the genuinely pluggable providers (IFileStorage, IAiServiceClient).
 /// </summary>
 public class SimilaritySearchService(SmartDocDbContext db)
 {
