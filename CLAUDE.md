@@ -360,6 +360,40 @@ Completado:
   planner ignoró el índice por estadísticas desactualizadas (en producción, autovacuum lo
   resuelve solo). Datos sintéticos borrados al terminar, 116 tests sin cambios (el índice no
   altera resultados, solo el plan de ejecución).
+- **Serilog real + manejo global de excepciones + logging de `Distance` crudo, en archivo y
+  consola, en los tres procesos (ver ADR 0020).** Hallazgo en el camino (dos, en realidad):
+  `Serilog.AspNetCore` estaba referenciado en `SmartDoc.Api.csproj` desde el inicio del
+  proyecto pero nunca se llamó a `UseSerilog` — la Api corrió Fases 1-4 sobre el logger de
+  consola por defecto; `SmartDoc.Worker` no tenía Serilog en absoluto. Segundo hallazgo, ya
+  corrigiendo el primero: la decisión inicial de "solo sink de consola, `docker logs` ya
+  captura stdout" resultó **incorrecta** — `Api`/`Worker` no corren containerizados
+  (`docker-compose.yml` solo tiene `postgres`/`minio`/`ai-service`), corren sueltos vía
+  `dotnet run`, así que sin sink de archivo el log de `Distance` (la razón misma de este
+  trabajo) se perdía apenas se cerraba la terminal. Corregido: **consola en texto legible +
+  archivo en JSON estructurado (`CompactJsonFormatter`/CLEF)**, mismo criterio en `Api`,
+  `Worker` (`logs/api-*.log`, `logs/worker-*.log`, rolling diario) y también en `ai-service`
+  (Python, `logging_config.py`/`.json`, formatter JSON propio sin dependencia nueva, aplicado
+  vía `--log-config` de uvicorn — no a nivel de import, para no competir con la config propia
+  de uvicorn — `docker-compose.yml` monta `./ai-service-python/logs:/app/logs` para que sea
+  visible desde el host). El `Distance` crudo además se aísla en `logs/distance-.log` (Api)
+  vía un sub-logger de Serilog filtrado por categoría (`RagDistanceLog.CategoryName`), sin
+  dejar de aparecer también en el log general. `GlobalExceptionHandler` (`IExceptionHandler`,
+  .NET 8+) reemplaza el 500 vacío/dev-exception-page por `ProblemDetails` consistente — mapeo
+  deliberadamente angosto: `HttpRequestException` (ai-service/Groq/Ollama caído) → 503, todo
+  lo demás → 500 genérico sin filtrar `exception.Message` en la respuesta. 3 tests .NET nuevos
+  (2 unit sobre `GlobalExceptionHandler.MapException`, 1 integración que fuerza una
+  `HttpRequestException` real a través del pipeline completo reemplazando `IAiServiceClient`
+  por un doble vía `ConfigureServices` — el primer intento, apuntar `AiService:BaseUrl` a un
+  puerto sin listener vía `ConfigureAppConfiguration`, no funcionó de forma confiable y se
+  descartó). 119 tests .NET totales (65 unit + 54 integración) + 19 tests de `ai-service`,
+  todos corridos contra el stack real completo (Docker Compose: Postgres, MinIO, ai-service
+  reconstruido con el nuevo logging; Ollama real en la máquina física para embeddings, Groq
+  real para generación) — todos en verde. Verificado además con los tres procesos corriendo
+  de verdad (no solo tests): `dotnet run` de `Api`/`Worker` generando los tres archivos JSON
+  esperados con contenido correcto, y `ai-service` en Docker con el volumen montado mostrando
+  `logs/ai-service.log` en el host — encontrado y corregido en el camino un campo `asctime`
+  que se filtraba como ruido (efecto colateral de que Python comparte el mismo `LogRecord`
+  entre handlers, no un dato real).
 
 Decisiones conscientes, no pendientes olvidados:
 - **Endpoints de `Users`** (registro, cambio de password) — deliberadamente fuera de scope
@@ -369,5 +403,7 @@ Decisiones conscientes, no pendientes olvidados:
   contra ninguna lista — sin logout real; aceptable para un solo seed user (ver ADR 0017).
 
 Próximo paso: seguir con Fase 5 (Production polish). Candidato ya identificado: ajuste
-empírico del threshold de similaridad (`Rag:MaxRelevantDistance`, ADR 0016) — requiere
-tráfico real para calibrar, no bloqueante.
+empírico del threshold de similaridad (`Rag:MaxRelevantDistance`, ADR 0016), para lo cual ADR
+0020 ya deja el logging de `Distance` crudo instrumentado y verificado — requiere generar
+tráfico real (ver metodología acordada: 5-10 PDFs variados + ~30-50 preguntas de
+calibración), no bloqueante.

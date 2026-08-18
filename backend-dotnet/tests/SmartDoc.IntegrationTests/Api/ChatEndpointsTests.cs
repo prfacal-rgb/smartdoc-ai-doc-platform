@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
 using FluentAssertions;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -120,6 +122,48 @@ public class ChatEndpointsTests : IClassFixture<WebApplicationFactory<Program>>,
         var response = await _client.PostAsJsonAsync("/api/chat", new ChatRequest("hello", Guid.NewGuid()));
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task PostChat_WhenAiServiceIsUnreachable_ReturnsServiceUnavailableProblemDetails()
+    {
+        // Real end-to-end pipeline test for GlobalExceptionHandler (ADR 0020): swaps
+        // IAiServiceClient for a double that throws HttpRequestException — the same exception
+        // AiServiceClient's EnsureSuccessStatusCode throws when ai-service/Groq/Ollama is
+        // actually unreachable — so the exception has to flow through the real middleware
+        // pipeline (ConfigureServices re-registration wins over Program.cs's own
+        // AddHttpClient<IAiServiceClient, AiServiceClient>() — last registration resolves).
+        using var brokenFactory = _factory.WithWebHostBuilder(builder =>
+            builder.ConfigureServices(services =>
+                services.AddScoped<IAiServiceClient, UnreachableAiServiceClient>()));
+
+        using var client = brokenFactory.CreateClient();
+        client.AuthenticateAs(brokenFactory, _testUser);
+
+        var response = await client.PostAsJsonAsync("/api/chat", new ChatRequest("hello", null));
+
+        response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        problem!.Title.Should().Be("AI service unavailable");
+    }
+
+    /// <summary>Test double standing in for a genuinely unreachable ai-service (ADR 0020).</summary>
+    private sealed class UnreachableAiServiceClient : IAiServiceClient
+    {
+        public Task<IReadOnlyList<ParsedPage>> ParseAsync(
+            Stream fileContent, string fileName, string contentType, CancellationToken cancellationToken = default)
+            => throw new HttpRequestException("ai-service unreachable (test double)");
+
+        public Task<IReadOnlyList<TextChunk>> ChunkAsync(
+            IReadOnlyList<ParsedPage> pages, CancellationToken cancellationToken = default)
+            => throw new HttpRequestException("ai-service unreachable (test double)");
+
+        public Task<EmbedResult> EmbedAsync(IReadOnlyList<string> texts, CancellationToken cancellationToken = default)
+            => throw new HttpRequestException("ai-service unreachable (test double)");
+
+        public Task<GenerateResult> GenerateAsync(
+            string question, IReadOnlyList<string> contextChunks, CancellationToken cancellationToken = default)
+            => throw new HttpRequestException("ai-service unreachable (test double)");
     }
 
     [Fact]

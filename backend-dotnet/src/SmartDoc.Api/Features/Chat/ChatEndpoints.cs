@@ -3,6 +3,7 @@ using FluentValidation;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using SmartDoc.Api;
 using SmartDoc.Api.Features.Auth;
 using SmartDoc.Application.AiService;
 using SmartDoc.Domain.Entities;
@@ -36,8 +37,13 @@ public static class ChatEndpoints
         IAiServiceClient aiServiceClient,
         SimilaritySearchService similaritySearchService,
         IConfiguration configuration,
+        ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
+        // RagDistanceLog.CategoryName (not ILogger<ChatEndpoints> — static classes can't be
+        // a generic type argument, CS0718) routes this to its own file via a Serilog
+        // sub-logger (ADR 0020), on top of the general app log.
+        var logger = loggerFactory.CreateLogger(RagDistanceLog.CategoryName);
         var validationResult = await validator.ValidateAsync(request, cancellationToken);
         if (!validationResult.IsValid)
         {
@@ -80,6 +86,14 @@ public static class ChatEndpoints
         var embedResult = await aiServiceClient.EmbedAsync([request.Question], cancellationToken);
         var matches = await similaritySearchService.SearchAsync(embedResult.Embeddings[0], topK, cancellationToken);
         var relevantMatches = matches.Where(m => m.Distance <= maxRelevantDistance).ToList();
+
+        // Raw distances, logged before the threshold filter above — the empirical signal
+        // ADR 0016 flagged as needed to calibrate Rag:MaxRelevantDistance against real
+        // traffic instead of guessing. {@Distances} is structured (Serilog, ADR 0020), so
+        // this is queryable later without re-running anything.
+        logger.LogInformation(
+            "Similarity search returned {MatchCount} candidate(s), {RelevantCount} within threshold {Threshold}. Distances: {@Distances}",
+            matches.Count, relevantMatches.Count, maxRelevantDistance, matches.Select(m => Math.Round(m.Distance, 4)));
 
         string answer;
         List<Citation> sources;

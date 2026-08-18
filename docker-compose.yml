@@ -60,6 +60,10 @@ services:
       GROQ_MODEL: ${GROQ_MODEL:-openai/gpt-oss-120b}
     ports:
       - "${AI_SERVICE_PORT:-8000}:8000"
+    volumes:
+      # Structured file logs (ADR 0020) — bind-mounted so they're visible/analyzable from the
+      # host without needing `docker exec`/`docker cp`.
+      - ./ai-service-python/logs:/app/logs
     networks:
       - smartdoc-net
     healthcheck:
