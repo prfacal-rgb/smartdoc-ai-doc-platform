@@ -18,6 +18,9 @@ venv/
 # Docker
 # (los datos de postgres viven en un volumen nombrado, no en el filesystem del repo)
 
+# Logs (Serilog file sinks / Python file handler — ver ADR 0020)
+logs/
+
 # IDE
 .vscode/
 .idea/
