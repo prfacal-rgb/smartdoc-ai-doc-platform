@@ -91,7 +91,15 @@ public class ProcessingJobProcessor(
                 "Processing job {JobId} for document {DocumentId} completed with {ChunkCount} chunks.",
                 job.Id, job.DocumentId, chunks.Count);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        // Checking the token, not the exception type, matters here: HttpClient.Timeout
+        // firing on a slow /embed call throws TaskCanceledException too (it derives from
+        // OperationCanceledException), but that's a transient failure like any other 4xx/5xx
+        // - it belongs in the granular retry below, not propagating up. Left uncaught, it
+        // crashes the BackgroundService and, with HostOptions.BackgroundServiceExceptionBehavior
+        // defaulting to StopHost, takes down the entire Worker process (found processing a
+        // 399-page calibration PDF whose batched /embed call exceeded 60s - see ADR 0021).
+        // Only real cancellation of *this* token (host shutdown) should still propagate.
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
             var maxRetries = configuration.GetValue("Worker:MaxRetries", 3);
             job.RecordFailure(ex.Message, DateTimeOffset.UtcNow, maxRetries);

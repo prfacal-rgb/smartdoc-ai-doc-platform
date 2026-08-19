@@ -81,7 +81,8 @@ public static class ChatEndpoints
         }
 
         var topK = configuration.GetValue("Rag:DefaultTopK", 5);
-        var maxRelevantDistance = configuration.GetValue("Rag:MaxRelevantDistance", 0.75);
+        // 0.33 empirically calibrated (see ADR 0022) - not a guess like the 0.75 it replaces.
+        var maxRelevantDistance = configuration.GetValue("Rag:MaxRelevantDistance", 0.33);
 
         var embedResult = await aiServiceClient.EmbedAsync([request.Question], cancellationToken);
         var matches = await similaritySearchService.SearchAsync(embedResult.Embeddings[0], topK, cancellationToken);

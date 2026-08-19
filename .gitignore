@@ -21,6 +21,11 @@ venv/
 # Logs (Serilog file sinks / Python file handler — ver ADR 0020)
 logs/
 
+# Calibración de Rag:MaxRelevantDistance — PDFs (posible copyright), preguntas y resultados
+# crudos son insumos de trabajo, no artefactos del proyecto; la metodología y el resultado
+# final quedan documentados en el ADR correspondiente, no acá.
+calibration/
+
 # IDE
 .vscode/
 .idea/

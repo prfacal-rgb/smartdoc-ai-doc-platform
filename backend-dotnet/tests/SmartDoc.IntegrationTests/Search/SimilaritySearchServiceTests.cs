@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.EntityFrameworkCore;
 using SmartDoc.Domain.Entities;
 using SmartDoc.Infrastructure.Search;
 using SmartDoc.IntegrationTests.Persistence;
@@ -53,18 +54,27 @@ public class SimilaritySearchServiceTests : IClassFixture<DatabaseFixture>
             await using var readContext = _fixture.CreateContext();
             var service = new SimilaritySearchService(readContext);
 
-            var results = await service.SearchAsync(AxisVector(0), topK: 5);
+            // topK covers every row in the table, not just this test's own 2 - DocumentChunks
+            // is never test-isolated (Documents is a shared knowledge base by design, ADR
+            // 0017) and, since ADR 0022, the dev DB legitimately carries a real calibration
+            // corpus alongside whatever a test inserts. Filtering to this test's own
+            // document.Id below is what makes the assertion correct regardless of what else
+            // is in there - a fixed topK: 5 would silently break the moment enough unrelated
+            // chunks rank closer to AxisVector(0) than the orthogonal chunkFar does.
+            var totalChunks = await readContext.DocumentChunks.CountAsync();
+            var results = await service.SearchAsync(AxisVector(0), topK: totalChunks);
+            var ownResults = results.Where(r => r.DocumentId == document.Id).ToList();
 
-            results.Should().HaveCount(2);
-            results[0].ChunkId.Should().Be(chunkClose.Id);
-            results[0].Distance.Should().BeApproximately(0, 0.0001);
-            results[0].FileName.Should().Be("report.pdf");
-            results[0].PageNumber.Should().Be(1);
-            results[0].Text.Should().Be("closely related text");
+            ownResults.Should().HaveCount(2);
+            ownResults[0].ChunkId.Should().Be(chunkClose.Id);
+            ownResults[0].Distance.Should().BeApproximately(0, 0.0001);
+            ownResults[0].FileName.Should().Be("report.pdf");
+            ownResults[0].PageNumber.Should().Be(1);
+            ownResults[0].Text.Should().Be("closely related text");
 
-            results[1].ChunkId.Should().Be(chunkFar.Id);
-            results[1].Distance.Should().BeApproximately(1, 0.0001);
-            results[0].Distance.Should().BeLessThan(results[1].Distance);
+            ownResults[1].ChunkId.Should().Be(chunkFar.Id);
+            ownResults[1].Distance.Should().BeApproximately(1, 0.0001);
+            ownResults[0].Distance.Should().BeLessThan(ownResults[1].Distance);
         }
         finally
         {

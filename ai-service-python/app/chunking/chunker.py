@@ -20,6 +20,14 @@ def chunk_pages(pages: list[ParsedPage], chunk_size_tokens: int, overlap_tokens:
     step = chunk_size_tokens - overlap_tokens
 
     for page in pages:
+        # A page with only whitespace/control characters (e.g. an image-only or cover page
+        # pypdf still extracts a stray space or two from) encodes to non-empty tokens, so
+        # `not tokens` alone doesn't catch it - it must be filtered explicitly, otherwise it
+        # reaches DocumentChunk's non-empty-text invariant on the .NET side and fails the
+        # whole document's processing over what amounts to a blank page.
+        if not page.text.strip():
+            continue
+
         tokens = _encoding.encode(page.text)
         if not tokens:
             continue
@@ -28,8 +36,11 @@ def chunk_pages(pages: list[ParsedPage], chunk_size_tokens: int, overlap_tokens:
         while start < len(tokens):
             window = tokens[start : start + chunk_size_tokens]
             text = _encoding.decode(window)
-            chunks.append(Chunk(chunk_index=chunk_index, page_number=page.page_number, text=text))
-            chunk_index += 1
+            # start += step must run regardless, or a blank window (rare - only possible at
+            # a page's trailing edge) would spin the loop forever without advancing.
+            if text.strip():
+                chunks.append(Chunk(chunk_index=chunk_index, page_number=page.page_number, text=text))
+                chunk_index += 1
             start += step
 
     return chunks
