@@ -72,6 +72,87 @@ services:
       timeout: 5s
       retries: 10
 
+  api:
+    build:
+      context: ./backend-dotnet
+      dockerfile: src/SmartDoc.Api/Dockerfile
+    container_name: smartdoc-api
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      # Development, not Production - the only thing it gates today is Scalar UI (ADR 0007),
+      # and this is a portfolio PoC meant to be explored, not a real deployment with users to
+      # protect (see ADR 0024). Connection info below points at other containers by service
+      # name, not localhost - appsettings.Development.json (meant for `dotnet run` on the host)
+      # is intentionally not relied on here.
+      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-smartdoc};Username=${POSTGRES_USER:-smartdoc};Password=${POSTGRES_PASSWORD:-smartdoc_dev_password}"
+      Jwt__Secret: ${JWT_SECRET:-scufkUN1BDa9dO03GzxzbaiRijT4KR9LxIC4ntoVjRo}
+      Jwt__SeedUserEmail: ${JWT_SEED_USER_EMAIL:-dev@smartdoc.local}
+      Jwt__SeedUserPassword: ${JWT_SEED_USER_PASSWORD:-smartdoc_dev_password}
+      Minio__Endpoint: http://minio:9000
+      Minio__AccessKey: ${MINIO_ROOT_USER:-smartdoc}
+      Minio__SecretKey: ${MINIO_ROOT_PASSWORD:-smartdoc_dev_password}
+      Minio__BucketName: ${MINIO_BUCKET_NAME:-smartdoc-documents}
+      AiService__BaseUrl: http://ai-service:8000
+      Worker__MaxRetries: ${WORKER_MAX_RETRIES:-3}
+      Rag__DefaultTopK: ${RAG_DEFAULT_TOPK:-5}
+      Rag__MaxTopK: ${RAG_MAX_TOPK:-50}
+      Rag__MaxRelevantDistance: ${RAG_MAX_RELEVANT_DISTANCE:-0.33}
+    ports:
+      - "${API_PORT:-8080}:8080"
+    volumes:
+      # Structured file logs (ADR 0020), same convention as ai-service above.
+      - ./backend-dotnet/src/SmartDoc.Api/logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      ai-service:
+        condition: service_healthy
+    networks:
+      - smartdoc-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  worker:
+    build:
+      context: ./backend-dotnet
+      dockerfile: src/SmartDoc.Worker/Dockerfile
+    container_name: smartdoc-worker
+    restart: unless-stopped
+    environment:
+      # DOTNET_ENVIRONMENT, not ASPNETCORE_ENVIRONMENT - the Worker is a plain Generic Host,
+      # not ASP.NET Core (see ADR 0018's note on this exact gotcha).
+      DOTNET_ENVIRONMENT: Development
+      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-smartdoc};Username=${POSTGRES_USER:-smartdoc};Password=${POSTGRES_PASSWORD:-smartdoc_dev_password}"
+      Worker__PollingIntervalSeconds: ${WORKER_POLLING_INTERVAL_SECONDS:-5}
+      Worker__MaxRetries: ${WORKER_MAX_RETRIES:-3}
+      Minio__Endpoint: http://minio:9000
+      Minio__AccessKey: ${MINIO_ROOT_USER:-smartdoc}
+      Minio__SecretKey: ${MINIO_ROOT_PASSWORD:-smartdoc_dev_password}
+      Minio__BucketName: ${MINIO_BUCKET_NAME:-smartdoc-documents}
+      AiService__BaseUrl: http://ai-service:8000
+    volumes:
+      - ./backend-dotnet/src/SmartDoc.Worker/logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      ai-service:
+        condition: service_healthy
+      # Waits for the Api's own healthcheck, not just service_started - the Api is what runs
+      # migrations (ADR 0024); starting the Worker before that finishes would race it against
+      # an empty schema.
+      api:
+        condition: service_healthy
+    networks:
+      - smartdoc-net
+
 networks:
   smartdoc-net:
     driver: bridge

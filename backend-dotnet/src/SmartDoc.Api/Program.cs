@@ -2,6 +2,7 @@ using System.Text;
 using Amazon.S3;
 using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Scalar.AspNetCore;
 using Serilog;
@@ -92,6 +93,10 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapGet("/", () => "Hello World!");
+// Liveness/readiness probe for the Docker healthcheck (ADR 0024) — same convention as
+// ai-service's own /health. Kestrel doesn't start accepting connections until app.Run() below,
+// so this only ever responds after the migration/seed block further down has finished.
+app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));
 app.MapAuthEndpoints();
 app.MapDocumentEndpoints();
 app.MapSearchEndpoints();
@@ -109,6 +114,15 @@ var bucketName = builder.Configuration["Minio:BucketName"]
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<SmartDocDbContext>();
+
+    // Resolves the "manual vs. automatic" question ADR 0004 left open since Phase 1 — applied
+    // automatically here so `docker compose up -d` (ADR 0024) is a genuine one-command
+    // bootstrap against a fresh Postgres, not one that also needs `dotnet ef database update`
+    // run by hand from a machine with the .NET SDK installed. Only the Api migrates, not the
+    // Worker (see ADR 0024) — running Migrate() from two processes racing against an empty
+    // database is the concurrency hazard that decision avoids.
+    await db.Database.MigrateAsync();
+
     await SmartDocDbContextSeeder.SeedAsync(db, seedUserEmail, seedUserPassword);
 
     var s3Client = scope.ServiceProvider.GetRequiredService<IAmazonS3>();
