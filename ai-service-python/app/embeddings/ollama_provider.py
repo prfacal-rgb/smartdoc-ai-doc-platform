@@ -13,7 +13,12 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
         self._model = model
 
     async def embed(self, texts: list[str]) -> tuple[list[list[float]], str]:
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        # A single call batches every chunk of a document at once (ADR 0012's own numbers -
+        # ~0.14-0.66s per call - were measured on small requests, not a ~100+ chunk batch
+        # from a large PDF; ADR 0021 measured ~600-700ms/chunk in practice). Matches the
+        # ceiling on the .NET -> ai-service leg (see AiServiceClient's HttpClient.Timeout) so
+        # this inner leg isn't the one cutting a legitimately-slow-but-working call short.
+        async with httpx.AsyncClient(timeout=600.0) as client:
             response = await client.post(
                 f"{self._base_url}/embeddings",
                 json={"model": self._model, "input": texts},

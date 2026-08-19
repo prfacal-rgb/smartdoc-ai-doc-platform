@@ -40,7 +40,13 @@ public static class DependencyInjection
         services.AddHttpClient<IAiServiceClient, AiServiceClient>(client =>
         {
             client.BaseAddress = new Uri(baseUrl);
-            client.Timeout = TimeSpan.FromSeconds(60); // embeddings/parsing can take a while
+            // A single /embed call batches every chunk of a document at once - measured
+            // ~600-700ms/chunk against local Ollama (see ADR 0021), so a large PDF needs
+            // several minutes. Raised rather than tuned precisely: nothing in this project's
+            // traffic is latency-sensitive enough to need a tighter ceiling, and the
+            // ProcessingJobProcessor catch above now retries a real timeout gracefully
+            // instead of crashing the Worker either way.
+            client.Timeout = TimeSpan.FromSeconds(600);
         });
     }
 

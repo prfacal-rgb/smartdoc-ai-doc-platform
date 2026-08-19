@@ -406,6 +406,21 @@ Completado:
   threshold.ps1` automatiza el ciclo completo; `calibration/` (PDFs/preguntas/resultados
   crudos) queda gitignoreada, el ADR es el registro durable. El corpus se dejó cargado en la
   base de dev (real, no descartable) — `DocumentChunks` deja de estar en 0 filas.
+- **Tres bugs de robustez del pipeline de ingesta encontrados armando ese corpus (ver ADR
+  0021)**, ninguno cubierto por los tests existentes porque nunca habían corrido contra
+  documentos reales: (1) PDFs encriptados con contraseña de usuario vacía (común, no requieren
+  password real para abrir) se rechazaban de entrada en `ai-service` sin intentar `decrypt("")`
+  primero; (2) una página sin texto extraíble podía producir un chunk solo-whitespace que
+  pasaba `ai-service` pero violaba el invariante de `DocumentChunk`, tirando abajo el
+  procesamiento del documento entero por una sola página; (3) el más serio — un timeout de
+  `HttpClient` (`TaskCanceledException`, que hereda de `OperationCanceledException`) esquivaba
+  el filtro `catch (Exception ex) when (ex is not OperationCanceledException)` de
+  `ProcessingJobProcessor`, escapaba sin pasar por el retry granular (ADR 0018), y tumbaba
+  **el proceso `SmartDoc.Worker` entero** vía `HostOptions.BackgroundServiceExceptionBehavior
+  = StopHost`. Corregido chequeando `cancellationToken.IsCancellationRequested` en vez del tipo
+  de excepción. De paso, timeouts de `/embed` subidos de 60s a 600s en ambas puntas (.NET →
+  `ai-service` → Ollama) — medido ~600-700ms/chunk contra Ollama local, insuficiente para
+  documentos de cientos de chunks.
 
 Decisiones conscientes, no pendientes olvidados:
 - **Endpoints de `Users`** (registro, cambio de password) — deliberadamente fuera de scope
@@ -414,8 +429,10 @@ Decisiones conscientes, no pendientes olvidados:
 - **Sin revocación de tokens.** El claim `jti` se emite pero no se persiste ni se chequea
   contra ninguna lista — sin logout real; aceptable para un solo seed user (ver ADR 0017).
 
-Próximo paso: seguir con Fase 5 (Production polish). Candidato ya identificado: ajuste
-empírico del threshold de similaridad (`Rag:MaxRelevantDistance`, ADR 0016), para lo cual ADR
-0020 ya deja el logging de `Distance` crudo instrumentado y verificado — requiere generar
-tráfico real (ver metodología acordada: 5-10 PDFs variados + ~30-50 preguntas de
-calibración), no bloqueante.
+Próximo paso: seguir con Fase 5 (Production polish). Pendiente explícito antes de dar la fase
+por cerrada (encontrado en el camino de ADR 0021, no resuelto todavía): un `ProcessingJob` que
+queda en estado `Running` por un cierre abrupto del `Worker` (crash, kill, corte de luz) no
+tiene ningún mecanismo de recuperación — `ProcessingJobPollingWorker` solo recoge jobs
+`Pending`, así que queda huérfano para siempre sin reintentar ni loguear nada. Falta decidir la
+política (¿reencolar al arrancar el `Worker`? ¿un chequeo periódico de staleness?) y
+la implementación.
