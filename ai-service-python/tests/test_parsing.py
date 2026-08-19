@@ -52,3 +52,35 @@ def test_parse_with_corrupt_pdf_bytes_returns_400(client):
     )
 
     assert response.status_code == 400
+
+
+def test_parse_pdf_encrypted_with_empty_user_password_extracts_text(client, pdf_bytes_factory, encrypted_pdf_bytes_factory):
+    # Regression test for ADR 0021: a PDF encrypted with an empty user password (owner
+    # password set to restrict printing/copying, but no password needed to open/read it in
+    # any normal viewer) used to be rejected outright. It should parse like any other PDF.
+    plain_bytes = pdf_bytes_factory("Protected but readable content")
+    encrypted_bytes = encrypted_pdf_bytes_factory(plain_bytes, user_password="", owner_password="owner-secret")
+
+    response = client.post(
+        "/parse",
+        files={"file": ("protected.pdf", encrypted_bytes, "application/pdf")},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["pages"]) == 1
+    assert "Protected but readable content" in body["pages"][0]["text"]
+
+
+def test_parse_pdf_encrypted_with_real_password_returns_400(client, pdf_bytes_factory, encrypted_pdf_bytes_factory):
+    # The other half of the ADR 0021 fix: a PDF that genuinely requires a password to open
+    # (non-empty user password) must still be rejected - decrypt("") is expected to fail.
+    plain_bytes = pdf_bytes_factory("Truly locked content")
+    encrypted_bytes = encrypted_pdf_bytes_factory(plain_bytes, user_password="real-password", owner_password="owner-secret")
+
+    response = client.post(
+        "/parse",
+        files={"file": ("locked.pdf", encrypted_bytes, "application/pdf")},
+    )
+
+    assert response.status_code == 400
