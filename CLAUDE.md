@@ -394,6 +394,18 @@ Completado:
   `logs/ai-service.log` en el host — encontrado y corregido en el camino un campo `asctime`
   que se filtraba como ruido (efecto colateral de que Python comparte el mismo `LogRecord`
   entre handlers, no un dato real).
+- **Calibración empírica de `Rag:MaxRelevantDistance` (ver ADR 0022) — de `0.75` a `0.33`.**
+  Corpus real de 6 PDFs variados (16-272 páginas) + 45 preguntas con ground truth (24 directas,
+  12 parafraseadas, 9 negativas fuera de alcance del corpus), corridas contra `POST
+  /api/search` (no `/api/chat` — da el `Distance` crudo sin aplicar threshold ni gastar en
+  Groq). Hallazgo principal: con `0.75` **ninguna** de las 45 preguntas quedaba filtrada
+  (máxima distancia observada: `0.52`) — el fallback de "insufficient context" era código
+  muerto en la práctica. `0.33` da cero falsos positivos entre las negativas con 91.7% de
+  recall en las positivas — precisión priorizada sobre recall a propósito (una cita falsa
+  mina más confianza que un "no tengo información" de más). `scripts/calibrate-rag-
+  threshold.ps1` automatiza el ciclo completo; `calibration/` (PDFs/preguntas/resultados
+  crudos) queda gitignoreada, el ADR es el registro durable. El corpus se dejó cargado en la
+  base de dev (real, no descartable) — `DocumentChunks` deja de estar en 0 filas.
 
 Decisiones conscientes, no pendientes olvidados:
 - **Endpoints de `Users`** (registro, cambio de password) — deliberadamente fuera de scope
