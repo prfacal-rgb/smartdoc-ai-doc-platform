@@ -98,6 +98,115 @@ public class ProcessingJobProcessorTests : IClassFixture<DatabaseFixture>
     }
 
     [Fact]
+    public async Task RecoverOrphanedJobsAsync_WithJobStuckInRunning_ResetsToPendingAndKeepsDocumentProcessing()
+    {
+        var user = new User(Guid.NewGuid(), $"user-{Guid.NewGuid():N}@example.com", "test-password-hash", DateTimeOffset.UtcNow);
+        var document = new Document(
+            Guid.NewGuid(), user.Id, "orphaned.pdf", "application/pdf", $"/storage/{Guid.NewGuid():N}.pdf", DateTimeOffset.UtcNow);
+        var job = new ProcessingJob(Guid.NewGuid(), document.Id, DateTimeOffset.UtcNow);
+
+        // Simulates what a crashed Worker leaves behind: MarkAsRunning/MarkAsProcessing were
+        // saved (ProcessingJobProcessor.ProcessNextAsync does this before its try block), but
+        // the process died before the job could ever reach Done/Failed.
+        job.MarkAsRunning(DateTimeOffset.UtcNow);
+        document.MarkAsProcessing();
+
+        await using var context = _fixture.CreateContext();
+        context.Users.Add(user);
+        context.Documents.Add(document);
+        context.ProcessingJobs.Add(job);
+        await context.SaveChangesAsync();
+
+        try
+        {
+            var processor = new ProcessingJobProcessor(
+                context, new MinioFileStorage(CreateS3Client(), BucketName), CreateAiServiceClient(), CreateConfiguration(maxRetries: 3),
+                NullLogger<ProcessingJobProcessor>.Instance);
+
+            var recoveredCount = await processor.RecoverOrphanedJobsAsync();
+
+            recoveredCount.Should().Be(1);
+
+            var reloadedJob = await context.ProcessingJobs.SingleAsync(j => j.Id == job.Id);
+            var reloadedDocument = await context.Documents.SingleAsync(d => d.Id == document.Id);
+
+            // Goes through RecordFailure, not an unconditional reset - RetryCount ticks up
+            // like any other failed attempt (deliberate, see ADR 0023: a job that keeps
+            // crashing the Worker still has to hit Worker:MaxRetries eventually).
+            reloadedJob.Status.Should().Be(ProcessingJobStatus.Pending);
+            reloadedJob.RetryCount.Should().Be(1);
+            reloadedJob.ErrorMessage.Should().Contain("Running state");
+            reloadedDocument.Status.Should().Be(DocumentStatus.Processing);
+        }
+        finally
+        {
+            await using var cleanupContext = _fixture.CreateContext();
+            cleanupContext.Documents.RemoveRange(cleanupContext.Documents.Where(d => d.UserId == user.Id));
+            await cleanupContext.SaveChangesAsync();
+            cleanupContext.Users.Remove(user);
+            await cleanupContext.SaveChangesAsync();
+        }
+    }
+
+    [Fact]
+    public async Task RecoverOrphanedJobsAsync_WhenRetriesAlreadyExhausted_MarksJobAndDocumentFailed()
+    {
+        var user = new User(Guid.NewGuid(), $"user-{Guid.NewGuid():N}@example.com", "test-password-hash", DateTimeOffset.UtcNow);
+        var document = new Document(
+            Guid.NewGuid(), user.Id, "orphaned.pdf", "application/pdf", $"/storage/{Guid.NewGuid():N}.pdf", DateTimeOffset.UtcNow);
+        var job = new ProcessingJob(Guid.NewGuid(), document.Id, DateTimeOffset.UtcNow);
+
+        job.MarkAsRunning(DateTimeOffset.UtcNow);
+        document.MarkAsProcessing();
+
+        await using var context = _fixture.CreateContext();
+        context.Users.Add(user);
+        context.Documents.Add(document);
+        context.ProcessingJobs.Add(job);
+        await context.SaveChangesAsync();
+
+        try
+        {
+            // maxRetries: 0 - the orphan-recovery attempt itself is the only attempt allowed.
+            var processor = new ProcessingJobProcessor(
+                context, new MinioFileStorage(CreateS3Client(), BucketName), CreateAiServiceClient(), CreateConfiguration(maxRetries: 0),
+                NullLogger<ProcessingJobProcessor>.Instance);
+
+            var recoveredCount = await processor.RecoverOrphanedJobsAsync();
+
+            recoveredCount.Should().Be(1);
+
+            var reloadedJob = await context.ProcessingJobs.SingleAsync(j => j.Id == job.Id);
+            var reloadedDocument = await context.Documents.SingleAsync(d => d.Id == document.Id);
+
+            reloadedJob.Status.Should().Be(ProcessingJobStatus.Failed);
+            reloadedJob.RetryCount.Should().Be(1);
+            reloadedDocument.Status.Should().Be(DocumentStatus.Failed);
+        }
+        finally
+        {
+            await using var cleanupContext = _fixture.CreateContext();
+            cleanupContext.Documents.RemoveRange(cleanupContext.Documents.Where(d => d.UserId == user.Id));
+            await cleanupContext.SaveChangesAsync();
+            cleanupContext.Users.Remove(user);
+            await cleanupContext.SaveChangesAsync();
+        }
+    }
+
+    [Fact]
+    public async Task RecoverOrphanedJobsAsync_WithNoRunningJobs_ReturnsZero()
+    {
+        await using var context = _fixture.CreateContext();
+        var processor = new ProcessingJobProcessor(
+            context, new MinioFileStorage(CreateS3Client(), BucketName), CreateAiServiceClient(), CreateConfiguration(),
+            NullLogger<ProcessingJobProcessor>.Instance);
+
+        var recoveredCount = await processor.RecoverOrphanedJobsAsync();
+
+        recoveredCount.Should().Be(0);
+    }
+
+    [Fact]
     public async Task ProcessNextAsync_WithNoPendingJobs_ReturnsFalse()
     {
         await using var context = _fixture.CreateContext();

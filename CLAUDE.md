@@ -421,6 +421,19 @@ Completado:
   de excepción. De paso, timeouts de `/embed` subidos de 60s a 600s en ambas puntas (.NET →
   `ai-service` → Ollama) — medido ~600-700ms/chunk contra Ollama local, insuficiente para
   documentos de cientos de chunks.
+- **Recuperación de `ProcessingJob` huérfanos tras un crash del `Worker` (ver ADR 0023) —
+  pendiente cerrado.** `ProcessingJobProcessor.RecoverOrphanedJobsAsync` corre una vez al
+  arrancar el `Worker`, antes de empezar a pollear: busca jobs en `Running` (huérfanos de una
+  instancia anterior que ya no existe — el proyecto corre una sola instancia, sin
+  orquestación) y los pasa por `RecordFailure`, el mismo método del retry granular (ADR 0018),
+  no un reset incondicional. Decisión explícita: `RetryCount` se incrementa igual que
+  cualquier otra falla en vez de resetearse a cero — resetear sería más "justo" para un job
+  huérfano por una razón externa, pero anularía la única protección contra un documento que
+  tumba al `Worker` cada vez que se lo procesa (reintentaría para siempre entre reinicios sin
+  llegar nunca a `Failed`). Mismo archivo, mismo bug que ADR 0021 encontró adentro de
+  `ProcessingJobProcessor` — el loop externo de `ProcessingJobPollingWorker` tenía el mismo
+  `catch` que excluía `TaskCanceledException` sin querer, corregido con el mismo criterio. 3
+  tests de integración nuevos, 122 tests .NET totales (65 unit + 57 integración).
 
 Decisiones conscientes, no pendientes olvidados:
 - **Endpoints de `Users`** (registro, cambio de password) — deliberadamente fuera de scope
@@ -429,10 +442,5 @@ Decisiones conscientes, no pendientes olvidados:
 - **Sin revocación de tokens.** El claim `jti` se emite pero no se persiste ni se chequea
   contra ninguna lista — sin logout real; aceptable para un solo seed user (ver ADR 0017).
 
-Próximo paso: seguir con Fase 5 (Production polish). Pendiente explícito antes de dar la fase
-por cerrada (encontrado en el camino de ADR 0021, no resuelto todavía): un `ProcessingJob` que
-queda en estado `Running` por un cierre abrupto del `Worker` (crash, kill, corte de luz) no
-tiene ningún mecanismo de recuperación — `ProcessingJobPollingWorker` solo recoge jobs
-`Pending`, así que queda huérfano para siempre sin reintentar ni loguear nada. Falta decidir la
-política (¿reencolar al arrancar el `Worker`? ¿un chequeo periódico de staleness?) y
-la implementación.
+Próximo paso: seguir con Fase 5 (Production polish). Sin candidato bloqueante identificado por
+ahora — revisar `PROJECT.md` para el siguiente ítem de "production polish" pendiente.
