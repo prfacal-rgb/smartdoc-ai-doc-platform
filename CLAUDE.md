@@ -121,51 +121,30 @@ No avanzar de fase sin que la anterior tenga tests pasando.
 - Cada decisión arquitectónica no trivial → un ADR corto en `docs/decisions/`.
 - README del repo en inglés (es portfolio, apunta a reclutadores/empresas internacionales).
 
-## Variables de entorno (esperadas)
+## Variables de entorno
 
-```
-# .NET API
-ConnectionStrings__Postgres=
-Jwt__Secret=
-Jwt__SeedUserEmail=
-Jwt__SeedUserPassword=
-
-# MinIO (object storage — usado por docker-compose.yml y Minio:* en appsettings)
-MINIO_ROOT_USER=
-MINIO_ROOT_PASSWORD=
-MINIO_BUCKET_NAME=
-
-# Proveedores AI (abstraídos — completar según implementación elegida)
-LLM_PROVIDER=anthropic|openai|ollama
-EMBEDDING_PROVIDER=ollama|openai
-ANTHROPIC_API_KEY=
-OPENAI_API_KEY=
-OLLAMA_BASE_URL=  # embeddings: nomic-embed-text (768 dim) en Ollama corriendo en la
-                   # máquina física, no en la VM ni en Docker.
-
-# Python AI Service
-AI_SERVICE_PORT=
-
-# Docker Compose (ver .env.example en la raíz del repo)
-POSTGRES_USER=
-POSTGRES_PASSWORD=
-POSTGRES_DB=
-```
+Ver `.env.example` en la raíz del repo — es la fuente de verdad real, mantenida junto con
+`docker-compose.yml` (ver ADR 0024). La versión anterior de esta sección era aspiracional
+(escrita en Fase 1, antes de decidir Groq/Ollama como proveedores — ver ADR 0011-0014) y nunca
+reflejó lo implementado; corregida acá en vez de dejarla desactualizada.
 
 ## Comandos de desarrollo
 
 ```bash
-# Levantar todo (Postgres + servicios)
+# Levantar TODO (Postgres, MinIO, ai-service, Api, Worker) — bootstrap de un solo comando,
+# incluye migrations automáticas (ADR 0024). Requiere Ollama corriendo en la máquina física
+# para embeddings (ver ADR 0011/0012) y GROQ_API_KEY en .env para /generate (ADR 0014).
 docker compose up -d
 
-# Backend .NET
+# --- Alternativa para iterar más rápido en desarrollo del backend .NET sin rebuildear
+# imágenes Docker en cada cambio: correr Api/Worker sueltos contra el resto en Docker ---
 cd backend-dotnet
 dotnet restore
 dotnet ef database update --project src/SmartDoc.Infrastructure
 dotnet test
-dotnet run --project src/SmartDoc.Api
+dotnet run --project src/SmartDoc.Api      # otra terminal: dotnet run --project src/SmartDoc.Worker
 
-# AI Service Python
+# AI Service Python — mismo criterio, alternativa a levantarlo por Docker
 cd ai-service-python
 pip install -r requirements.txt
 pytest
@@ -434,6 +413,31 @@ Completado:
   `ProcessingJobProcessor` — el loop externo de `ProcessingJobPollingWorker` tenía el mismo
   `catch` que excluía `TaskCanceledException` sin querer, corregido con el mismo criterio. 3
   tests de integración nuevos, 122 tests .NET totales (65 unit + 57 integración).
+- **Regresión de los dos bugs de `ai-service` de ADR 0021, cubiertos con tests.** Se habían
+  verificado solo a mano (llamadas `httpx` directas). 4 tests nuevos: PDF encriptado con
+  password vacía (extrae bien) vs. con password real (sigue rechazado, `pypdf.PdfWriter.
+  encrypt()` construye ambos casos sobre un PDF real armado con `fpdf2`); página solo-
+  whitespace no produce chunk; y un test que regresiona específicamente un bug que nunca llegó
+  a shippearse — el primer intento del filtro a nivel de ventana en `chunker.py` tenía un
+  `continue` antes de `start += step` (loop infinito), atrapado antes de commitear. Verificado
+  reintroduciendo el bug a propósito: colgó de verdad bajo `ThreadPoolExecutor` (su hook de
+  `atexit` espera a los threads sin importar `shutdown(wait=False)`), reescrito con
+  `threading.Thread(daemon=True)` que sí se abandona limpio. 23 tests de `ai-service` totales
+  (eran 19).
+- **`docker-compose.yml` completo — `Api`/`Worker` contenedorizados (ver ADR 0024).** `docker
+  compose up -d` pasa a ser un bootstrap de un solo comando de verdad (antes solo levantaba
+  `postgres`/`minio`/`ai-service`; `Api`/`Worker` corrían sueltos toda la sesión). De paso
+  resuelve un pendiente que ADR 0004 había dejado abierto desde Fase 1: migrations ahora se
+  aplican automáticamente (`db.Database.MigrateAsync()`), solo desde la `Api` — el `Worker`
+  depende de que la `Api` esté `healthy` (nuevo `GET /health`) antes de arrancar, evitando que
+  las dos corran `Migrate()` en paralelo contra una base recién creada. Verificado de punta a
+  punta con el stack real: login, listado de los 6 documentos del corpus de calibración
+  (intactos), y un upload nuevo `Uploaded → Ready` procesado por el `Worker` contenedorizado.
+  Encontrado en el camino: la imagen `runtime:10.0` del `Worker` (más liviana que `aspnet:10.0`
+  porque no necesita Kestrel/ASP.NET Core) no trae `libgssapi-krb5-2`, que Npgsql prueba cargar
+  al conectar aunque el proyecto use password plano — sin ella, Npgsql conecta igual pero loguea
+  un error feo en cada conexión; agregada explícitamente vía `apt-get`. 65 unit + 57 integración
+  (.NET) y 23 (`ai-service`) sin cambios, todos corridos contra el stack contenedorizado real.
 
 Decisiones conscientes, no pendientes olvidados:
 - **Endpoints de `Users`** (registro, cambio de password) — deliberadamente fuera de scope
@@ -442,5 +446,8 @@ Decisiones conscientes, no pendientes olvidados:
 - **Sin revocación de tokens.** El claim `jti` se emite pero no se persiste ni se chequea
   contra ninguna lista — sin logout real; aceptable para un solo seed user (ver ADR 0017).
 
-Próximo paso: seguir con Fase 5 (Production polish). Sin candidato bloqueante identificado por
-ahora — revisar `PROJECT.md` para el siguiente ítem de "production polish" pendiente.
+Próximo paso: seguir con Fase 5 (Production polish). Dos ítems de "docs" (checklist de
+`PROJECT.md` §9) sin arrancar todavía: no existe `README.md` en la raíz (pedido explícito de
+este mismo archivo — en inglés, apunta a reclutadores) ni `docs/architecture.md` (listado en la
+estructura de repo de este archivo). Ninguno bloqueante para seguir desarrollando, pero son
+entregables reales del MVP, no opcionales.
