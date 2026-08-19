@@ -27,6 +27,58 @@ public class ProcessingJobProcessor(
     IConfiguration configuration,
     ILogger<ProcessingJobProcessor> logger)
 {
+    /// <summary>
+    /// Recovers ProcessingJobs orphaned in Running by an ungraceful Worker shutdown (crash,
+    /// kill, power loss) — the polling loop only ever picks up Pending jobs (see
+    /// ProcessNextAsync below), so without this a job left in Running stays there forever,
+    /// silently, with nothing retrying it or even logging that it happened (found via ADR
+    /// 0021, fixed here — ADR 0023). Meant to run once at Worker startup, before polling
+    /// begins: this project runs a single Worker instance (no distributed orchestration, see
+    /// CLAUDE.md's scope guard), so any job still Running when a fresh instance starts up can
+    /// only belong to a previous instance that's gone.
+    ///
+    /// Reuses RecordFailure rather than unconditionally resetting to Pending, deliberately —
+    /// a job that reliably crashes the Worker every time it's attempted (a "poison pill")
+    /// still needs to hit Worker:MaxRetries and land on Failed like any other repeated
+    /// failure, not retry forever across restarts.
+    /// </summary>
+    /// <returns>How many orphaned jobs were found and recovered.</returns>
+    public async Task<int> RecoverOrphanedJobsAsync(CancellationToken cancellationToken = default)
+    {
+        var orphanedJobs = await db.ProcessingJobs
+            .Where(j => j.Status == ProcessingJobStatus.Running)
+            .ToListAsync(cancellationToken);
+
+        if (orphanedJobs.Count == 0)
+        {
+            return 0;
+        }
+
+        var maxRetries = configuration.GetValue("Worker:MaxRetries", 3);
+        var now = DateTimeOffset.UtcNow;
+
+        foreach (var job in orphanedJobs)
+        {
+            job.RecordFailure(
+                "Job was left in Running state by an ungraceful Worker shutdown (crash, kill, or power loss).",
+                now, maxRetries);
+
+            if (job.Status == ProcessingJobStatus.Failed)
+            {
+                var document = await db.Documents.FindAsync([job.DocumentId], cancellationToken);
+                document?.MarkAsFailed();
+            }
+
+            logger.LogWarning(
+                "Recovered orphaned job {JobId} (document {DocumentId}), found in Running state at Worker startup. " +
+                "New status: {Status} (attempt {RetryCount}).",
+                job.Id, job.DocumentId, job.Status, job.RetryCount);
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        return orphanedJobs.Count;
+    }
+
     /// <returns>true if a job was picked up and processed, false if none was pending.</returns>
     public async Task<bool> ProcessNextAsync(CancellationToken cancellationToken = default)
     {
