@@ -45,6 +45,18 @@ builder.Services.AddValidatorsFromAssemblyContaining<CreateDocumentRequestValida
 builder.Services.AddOpenApi();
 builder.Services.AddSingleton<JwtTokenGenerator>();
 
+// Phase 6 (frontend, ADR 0025): the Vite dev server runs on a different origin than the
+// Api, so the browser enforces CORS on every request. Comma-separated in config
+// (Cors:AllowedOrigins / Cors__AllowedOrigins) rather than a JSON array, so the
+// docker-compose env var override has the same shape as the appsettings.Development.json
+// default. Credential-free (Bearer token in a header, not a cookie) — AllowCredentials()
+// is deliberately not set.
+var allowedOrigins = (builder.Configuration["Cors:AllowedOrigins"] ?? string.Empty)
+    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+builder.Services.AddCors(options => options.AddDefaultPolicy(policy =>
+    policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod()));
+
 // ADR 0020: global exception handling — see GlobalExceptionHandler for what gets mapped
 // where and why.
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
@@ -88,6 +100,8 @@ if (app.Environment.IsDevelopment())
 // exceptions thrown by any of it (request logging included).
 app.UseExceptionHandler();
 app.UseSerilogRequestLogging();
+
+app.UseCors();
 
 app.UseAuthentication();
 app.UseAuthorization();

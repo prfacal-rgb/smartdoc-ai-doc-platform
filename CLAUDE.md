@@ -68,13 +68,19 @@ smartdoc/
 │   │   ├── embeddings/
 │   │   └── llm/
 │   └── tests/
+├── frontend/
+│   └── src/
+│       ├── api/            # cliente HTTP + tipos (reflejan los DTOs de la Api 1:1)
+│       ├── auth/            # AuthContext (JWT en localStorage)
+│       ├── hooks/            # useDocuments (con polling), useChat
+│       └── components/      # LoginScreen, DocumentsPanel, UploadBox, ChatPanel, StatusBadge
 └── docs/
     ├── architecture.md
     └── decisions/          # ADRs, una por decisión relevante
 ```
 
-`frontend/` se agrega recién en Fase 6, cuando el backend tenga funcionalidad básica
-estable — no crear la carpeta antes de eso.
+`frontend/` (React + Vite + TypeScript + Tailwind — ver ADR 0025) se creó recién en Fase 6,
+una vez que el backend ya tenía funcionalidad básica estable, tal como estaba planeado acá.
 
 ## Fases de desarrollo (seguir en orden, no saltar)
 
@@ -167,7 +173,8 @@ señalarlo explícitamente en la respuesta y preguntar antes de implementar.
 ## Estado actual
 
 **Fases 1-5 cerradas (Backend foundation, Async processing, AI pipeline, RAG, Production
-polish). Fase 6 (Frontend) sin arrancar — a evaluar.**
+polish). Fase 6 (Frontend) en progreso — dashboard inicial (login, documentos, chat)
+funcionando contra el stack real.**
 
 Completado:
 - Entorno de desarrollo operativo: Docker Desktop + WSL2, `docker compose up -d` levanta
@@ -454,6 +461,28 @@ Completado:
   documento de concepto original, versionado como tal) pero ni `README.md` ni
   `architecture.md` repiten ese dato viejo.
 
+- **Fase 6 (en progreso) — dashboard inicial del frontend (ver ADR 0025).** `frontend/`
+  scaffoldeado con Vite + React 19 + TypeScript + Tailwind CSS v4, sin librería de
+  estado/data-fetching adicional (`useState`/`useEffect` alcanzan para 4 llamadas HTTP).
+  Layout de una sola pantalla: `DocumentsPanel` (listado compartido, arriba a la izquierda,
+  con polling cada 4s mientras haya algún documento en `Uploaded`/`Processing` — mismo patrón
+  que el propio `Worker`, ADR 0009) + `UploadBox` (drag-and-drop, valida PDF client-side) a
+  la izquierda; `ChatPanel` (caja de pregunta + historial de respuestas con citas) a la
+  derecha. Pantalla de login real (no auto-login con credenciales embebidas — decisión
+  pedida explícitamente): JWT en `localStorage`, descartado client-side si `expiresAt` ya
+  pasó. Una sola conversación continua por sesión de browser (reutiliza `conversationId`
+  entre preguntas, ADR 0015), no un selector de conversaciones — el layout pedido no lo
+  necesita. CORS habilitado en la Api (`Cors:AllowedOrigins`, `AddCors`/`UseCors` nuevos en
+  `Program.cs`) — necesario recién ahora porque hasta esta fase nada consumía la Api desde
+  un origen de browser distinto; sin `AllowCredentials()`, el JWT viaja en el header
+  `Authorization`, no en una cookie. Verificado de punta a punta contra el stack real:
+  rebuild+recreate del contenedor `api`, header `Access-Control-Allow-Origin` confirmado en
+  la respuesta real, y un smoke test completo (login → listar → subir PDF real → poll hasta
+  `Ready` → preguntar → citas correctas) con las mismas formas de request que usa el
+  cliente. `dotnet build`/`tsc -b`/`npm run build` sin errores, 122 tests .NET + 23 de
+  `ai-service` sin cambios de comportamiento. Confirmado visualmente por el usuario en el
+  browser real (la extensión de Claude in Chrome no llegó a conectarse en la sesión).
+
 Decisiones conscientes, no pendientes olvidados:
 - **Endpoints de `Users`** (registro, cambio de password) — deliberadamente fuera de scope
   (ver ADR 0007): el único usuario del MVP sigue siendo el seed user gestionado por config,
@@ -461,7 +490,6 @@ Decisiones conscientes, no pendientes olvidados:
 - **Sin revocación de tokens.** El claim `jti` se emite pero no se persiste ni se chequea
   contra ninguna lista — sin logout real; aceptable para un solo seed user (ver ADR 0017).
 
-Próximo paso: checklist de `PROJECT.md` §9 (Fase 5) sin ítems pendientes conocidos —
-`README.md`/`docs/architecture.md` eran los dos últimos. Fase 5 se considera cerrada en la
-práctica; queda como decisión abierta si el proyecto pasa a Fase 6 (Frontend) o si se
-considera el MVP terminado tal cual está para portfolio.
+Próximo paso: Fase 5 cerrada. Fase 6 (Frontend) en progreso — dashboard inicial confirmado
+visualmente por el usuario (ADR 0025). Queda como decisión abierta si seguir puliendo el
+dashboard o darlo por suficiente para portfolio.
