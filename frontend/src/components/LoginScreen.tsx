@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useAuth } from "../auth/AuthContext";
+import { Spinner } from "./Spinner";
 
 export function LoginScreen() {
   const { login } = useAuth();
@@ -60,8 +61,9 @@ export function LoginScreen() {
         <button
           type="submit"
           disabled={isSubmitting}
-          className="mt-6 w-full rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+          className="mt-6 flex w-full items-center justify-center gap-2 rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
+          {isSubmitting && <Spinner />}
           {isSubmitting ? "Signing in…" : "Sign in"}
         </button>
       </form>

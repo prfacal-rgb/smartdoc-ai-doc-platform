@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { ChatMessage } from "../hooks/useChat";
+import { Spinner } from "./Spinner";
 
 interface ChatPanelProps {
   messages: ChatMessage[];
@@ -51,7 +54,16 @@ export function ChatPanel({ messages, isAsking, error, onAsk }: ChatPanelProps) 
                 message.role === "user" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-800"
               }`}
             >
-              <p className="whitespace-pre-wrap">{message.content}</p>
+              {/* The LLM answers in Markdown (bold, lists) - rendered properly instead of
+                  showing raw asterisks/dashes. prose-invert matches the dark user bubble;
+                  max-w-none because the bubble itself already constrains width. */}
+              <div
+                className={`prose prose-sm max-w-none break-words ${
+                  message.role === "user" ? "prose-invert" : ""
+                }`}
+              >
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+              </div>
               {message.sources && message.sources.length > 0 && (
                 <ul className="mt-2 space-y-0.5 border-t border-slate-300/50 pt-2 text-xs text-slate-500">
                   {message.sources.map((source, index) => (
@@ -65,7 +77,11 @@ export function ChatPanel({ messages, isAsking, error, onAsk }: ChatPanelProps) 
           </div>
         ))}
 
-        {isAsking && <p className="text-sm text-slate-400">Thinking…</p>}
+        {isAsking && (
+          <div className="flex items-center gap-2 text-sm text-slate-400">
+            <Spinner /> Thinking…
+          </div>
+        )}
       </div>
 
       {error && <p className="border-t border-slate-200 px-4 py-2 text-sm text-red-600">{error}</p>}

@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 import { login as loginRequest } from "../api/client";
+import { decodeJwtPayload } from "./jwt";
 
 const STORAGE_KEY = "smartdoc.auth";
 
@@ -10,6 +11,7 @@ interface StoredAuth {
 
 interface AuthContextValue {
   token: string | null;
+  email: string | null;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
 }
@@ -48,9 +50,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAuth(null);
   }, []);
 
+  const email = useMemo(() => {
+    if (!auth?.token) return null;
+    const payload = decodeJwtPayload(auth.token);
+    return typeof payload?.email === "string" ? payload.email : null;
+  }, [auth]);
+
   const value = useMemo<AuthContextValue>(
-    () => ({ token: auth?.token ?? null, login, logout }),
-    [auth, login, logout],
+    () => ({ token: auth?.token ?? null, email, login, logout }),
+    [auth, email, login, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

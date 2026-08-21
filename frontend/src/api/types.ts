@@ -25,6 +25,18 @@ export interface ChatResponse {
   sources: Citation[];
 }
 
+export interface MessageResponse {
+  id: string;
+  role: "User" | "Assistant";
+  content: string;
+  createdAt: string;
+}
+
+export interface ConversationHistoryResponse {
+  conversationId: string;
+  messages: MessageResponse[];
+}
+
 export interface LoginResponse {
   token: string;
   expiresAt: string;
