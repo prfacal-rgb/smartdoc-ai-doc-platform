@@ -506,6 +506,17 @@ Completado:
   `pwsh`), y un `.env` local de `ai-service` con el modelo viejo hardcodeado que rompía sus
   tests corridos fuera de Docker. 122 tests .NET + 23 `ai-service` en verde. Verificado con
   la pregunta real que disparó todo: ahora responde citando el documento correcto.
+- **Pulido del dashboard (frontend), sin ADR — detalle de implementación, no decisión
+  arquitectónica.** Respuestas del LLM renderizadas como Markdown real (`react-markdown` +
+  `remark-gfm` + `@tailwindcss/typography`, `prose-invert` en la burbuja oscura del usuario)
+  en vez de asteriscos/guiones literales. Conversación persistida entre refrescos de página:
+  el `conversationId` se guarda en `localStorage`, pero el historial en sí se rehidrata desde
+  `GET /api/chat/{id}` (fuente de verdad real) en vez de cachear mensajes client-side — un
+  404 (conversación borrada o de otro login) limpia el id guardado solo, sin mostrar error.
+  Decodificado el JWT client-side (payload sin firma verificar, solo para mostrar el email
+  del usuario logueado en el header — nunca usado para autorizar nada, eso lo sigue haciendo
+  la Api). Timestamps relativos en el listado de documentos, spinners consistentes
+  reemplazando texto plano de "Loading…"/"Uploading…"/"Thinking…", favicon.
 
 Decisiones conscientes, no pendientes olvidados:
 - **Endpoints de `Users`** (registro, cambio de password) — deliberadamente fuera de scope

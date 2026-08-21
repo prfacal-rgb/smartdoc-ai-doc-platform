@@ -1,4 +1,5 @@
 import { useRef, useState, type DragEvent } from "react";
+import { Spinner } from "./Spinner";
 
 interface UploadBoxProps {
   isUploading: boolean;
@@ -58,7 +59,8 @@ export function UploadBox({ isUploading, onUpload }: UploadBoxProps) {
           className="hidden"
           onChange={(e) => void handleFile(e.target.files?.[0])}
         />
-        <p className="text-sm text-slate-600">
+        <p className="flex items-center gap-2 text-sm text-slate-600">
+          {isUploading && <Spinner />}
           {isUploading ? "Uploading…" : "Drag a PDF here, or click to browse"}
         </p>
         <p className="mt-1 text-xs text-slate-400">PDF only</p>

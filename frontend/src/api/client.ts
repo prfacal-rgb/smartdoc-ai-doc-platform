@@ -1,5 +1,6 @@
 import type {
   ChatResponse,
+  ConversationHistoryResponse,
   DocumentResponse,
   LoginResponse,
   ValidationProblemDetails,
@@ -86,6 +87,10 @@ export function uploadDocument(token: string, file: File): Promise<DocumentRespo
 
 export function deleteDocument(token: string, id: string): Promise<void> {
   return request<void>(`/api/documents/${id}`, { method: "DELETE", token });
+}
+
+export function getConversation(token: string, conversationId: string): Promise<ConversationHistoryResponse> {
+  return request<ConversationHistoryResponse>(`/api/chat/${conversationId}`, { token });
 }
 
 export function postChat(
