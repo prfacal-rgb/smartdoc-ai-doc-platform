@@ -6,17 +6,17 @@ from app.embeddings.provider import EmbeddingProvider
 from app.main import app
 
 
-def test_embed_single_text_returns_768_dim_vector_and_model_name(client):
-    """Hits the real Ollama instance (nomic-embed-text on the physical host) — same policy
+def test_embed_single_text_returns_1024_dim_vector_and_model_name(client):
+    """Hits the real Ollama instance (bge-m3 on the physical host, ADR 0026) — same policy
     as the .NET side's integration tests against real Postgres/MinIO."""
     response = client.post("/embed", json={"texts": ["Hello SmartDoc, this is a test."]})
 
     assert response.status_code == 200
     body = response.json()
     assert len(body["embeddings"]) == 1
-    assert len(body["embeddings"][0]) == 768
-    assert body["dimensions"] == 768
-    assert body["model"] == "nomic-embed-text"
+    assert len(body["embeddings"][0]) == 1024
+    assert body["dimensions"] == 1024
+    assert body["model"] == "bge-m3"
 
 
 def test_embed_multiple_texts_returns_one_embedding_per_text(client):
@@ -27,7 +27,7 @@ def test_embed_multiple_texts_returns_one_embedding_per_text(client):
     assert response.status_code == 200
     body = response.json()
     assert len(body["embeddings"]) == len(texts)
-    assert all(len(e) == 768 for e in body["embeddings"])
+    assert all(len(e) == 1024 for e in body["embeddings"])
 
 
 def test_embed_with_empty_texts_list_returns_422(client):

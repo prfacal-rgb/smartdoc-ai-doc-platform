@@ -40,13 +40,15 @@ public static class DependencyInjection
         services.AddHttpClient<IAiServiceClient, AiServiceClient>(client =>
         {
             client.BaseAddress = new Uri(baseUrl);
-            // A single /embed call batches every chunk of a document at once - measured
-            // ~600-700ms/chunk against local Ollama (see ADR 0021), so a large PDF needs
-            // several minutes. Raised rather than tuned precisely: nothing in this project's
-            // traffic is latency-sensitive enough to need a tighter ceiling, and the
-            // ProcessingJobProcessor catch above now retries a real timeout gracefully
-            // instead of crashing the Worker either way.
-            client.Timeout = TimeSpan.FromSeconds(600);
+            // A single /embed call batches every chunk of a document at once. Was 600s for
+            // nomic-embed-text (~600-700ms/chunk, ADR 0021); bge-m3 (ADR 0026) measured
+            // ~1835ms/chunk on the same 409-chunk Fortinet manual - 750s (12.5 min) for that
+            // one document alone, already past the old ceiling. Raised with generous margin
+            // rather than tuned precisely: nothing in this project's traffic is
+            // latency-sensitive enough to need a tighter ceiling, and the
+            // ProcessingJobProcessor catch above retries a real timeout gracefully instead of
+            // crashing the Worker either way.
+            client.Timeout = TimeSpan.FromSeconds(1800);
         });
     }
 

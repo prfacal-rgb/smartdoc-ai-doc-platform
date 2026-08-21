@@ -17,7 +17,14 @@ class Settings(BaseSettings):
 
     embedding_provider: str = "ollama"
     ollama_base_url: str = "http://localhost:11434/v1"
-    ollama_embedding_model: str = "nomic-embed-text"
+    # bge-m3 (1024 dim), not nomic-embed-text (768 dim) — see ADR 0026. nomic-embed-text is
+    # mostly English-trained and failed cross-lingual retrieval badly (a Spanish question
+    # couldn't find an on-topic English document even in the top 50 candidates); bge-m3 is
+    # trained specifically for multilingual/cross-lingual dense retrieval across 100+
+    # languages. Measured ~773ms/chunk in batch on this host, comparable to
+    # nomic-embed-text's ~600-700ms (ADR 0021) — not the dramatic slowdown the ~4.4x parameter
+    # count difference might suggest.
+    ollama_embedding_model: str = "bge-m3"
 
     # Chosen over local Ollama for /generate: measured 40s+ for a 35-token completion with
     # qwen2.5-coder:14b on the physical host, vs. ~0.5s end-to-end on Groq (see ADR 0014) —

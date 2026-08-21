@@ -80,7 +80,7 @@ public class ProcessingJobProcessorTests : IClassFixture<DatabaseFixture>
             reloadedDocument.Status.Should().Be(DocumentStatus.Ready);
 
             chunks.Should().NotBeEmpty();
-            chunks.Should().OnlyContain(c => c.EmbeddingModel == "nomic-embed-text");
+            chunks.Should().OnlyContain(c => c.EmbeddingModel == "bge-m3");
             chunks.Should().OnlyContain(c => c.Embedding.Length == DocumentChunk.EmbeddingDimensions);
             chunks.Should().OnlyContain(c => c.PageNumber == 1); // the fixture is a single-page PDF
             chunks.Select(c => c.ChunkIndex).Order().Should().BeEquivalentTo(Enumerable.Range(0, chunks.Count));
