@@ -166,8 +166,8 @@ señalarlo explícitamente en la respuesta y preguntar antes de implementar.
 
 ## Estado actual
 
-**Fases 1-4 cerradas (Backend foundation, Async processing, AI pipeline, RAG). Fase 5
-(Production polish) en progreso — Auth (JWT) implementado.**
+**Fases 1-5 cerradas (Backend foundation, Async processing, AI pipeline, RAG, Production
+polish). Fase 6 (Frontend) sin arrancar — a evaluar.**
 
 Completado:
 - Entorno de desarrollo operativo: Docker Desktop + WSL2, `docker compose up -d` levanta
@@ -438,6 +438,21 @@ Completado:
   al conectar aunque el proyecto use password plano — sin ella, Npgsql conecta igual pero loguea
   un error feo en cada conexión; agregada explícitamente vía `apt-get`. 65 unit + 57 integración
   (.NET) y 23 (`ai-service`) sin cambios, todos corridos contra el stack contenedorizado real.
+- **`README.md` (raíz) + `docs/architecture.md` — Fase 5 cerrada.** Últimos dos ítems del
+  checklist de `PROJECT.md` §9. `README.md` sigue la estructura sugerida por `PROJECT.md`
+  §10 (arquitectura, por qué cada decisión, estrategia RAG con valores reales — no
+  placeholders —, stack, setup, API, testing, limitaciones conocidas), en inglés, apuntando a
+  reclutadores. `docs/architecture.md` es el complemento técnico más profundo: diagramas
+  Mermaid (arquitectura de componentes, dos sequence diagrams de upload/procesamiento y
+  chat-RAG, ER diagram del schema completo), tabla de configuración con los valores reales
+  vigentes (`Worker:MaxRetries=3`, `Rag:MaxRelevantDistance=0.33`, etc.), y una sección de
+  deployment/testing/observability que enlaza a los ADRs correspondientes en vez de
+  reexplicarlos. Ambos documentos se escribieron leyendo el código real (validators,
+  endpoints, entidades de dominio, config effectiva) en vez de asumir lo que decía
+  `PROJECT.md` — encontrado en el camino: `PROJECT.md` todavía decía ".NET 9" en la sección 4,
+  desactualizado frente al `.NET 10` real (ver ADR 0001); no se tocó `PROJECT.md` (es el
+  documento de concepto original, versionado como tal) pero ni `README.md` ni
+  `architecture.md` repiten ese dato viejo.
 
 Decisiones conscientes, no pendientes olvidados:
 - **Endpoints de `Users`** (registro, cambio de password) — deliberadamente fuera de scope
@@ -446,8 +461,7 @@ Decisiones conscientes, no pendientes olvidados:
 - **Sin revocación de tokens.** El claim `jti` se emite pero no se persiste ni se chequea
   contra ninguna lista — sin logout real; aceptable para un solo seed user (ver ADR 0017).
 
-Próximo paso: seguir con Fase 5 (Production polish). Dos ítems de "docs" (checklist de
-`PROJECT.md` §9) sin arrancar todavía: no existe `README.md` en la raíz (pedido explícito de
-este mismo archivo — en inglés, apunta a reclutadores) ni `docs/architecture.md` (listado en la
-estructura de repo de este archivo). Ninguno bloqueante para seguir desarrollando, pero son
-entregables reales del MVP, no opcionales.
+Próximo paso: checklist de `PROJECT.md` §9 (Fase 5) sin ítems pendientes conocidos —
+`README.md`/`docs/architecture.md` eran los dos últimos. Fase 5 se considera cerrada en la
+práctica; queda como decisión abierta si el proyecto pasa a Fase 6 (Frontend) o si se
+considera el MVP terminado tal cual está para portfolio.
