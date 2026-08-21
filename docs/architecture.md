@@ -17,7 +17,7 @@ configuration and deployment as they actually exist today.
 | `ai-service` (Python/FastAPI) | Stateless: `/parse`, `/chunk`, `/embed`, `/generate`. Never touches PostgreSQL. |
 | PostgreSQL + pgvector | Transactional data and vector storage/search in one system. |
 | MinIO | Original PDF files (S3-compatible API). |
-| Ollama | Embedding model (`nomic-embed-text`), runs on the host, not containerized. |
+| Ollama | Embedding model (`bge-m3`, multilingual — ADR 0026), runs on the host, not containerized. |
 | Groq | Hosted LLM for `/generate`. |
 
 `Api` and `Worker` share `SmartDoc.Infrastructure`/`SmartDoc.Domain`/`SmartDoc.Application`
@@ -153,7 +153,7 @@ erDiagram
         int PageNumber
         string Text
         string EmbeddingModel
-        vector768 Embedding
+        vector1024 Embedding
         datetimeoffset CreatedAt
     }
     Conversations {
@@ -180,11 +180,12 @@ Notes:
 - `Documents` is a shared knowledge base — any authenticated user can see/delete any
   document. `Conversations` are personal — retrieval is always scoped to the owning
   `UserId`. See [ADR 0017](decisions/0017-jwt-auth.md).
-- `DocumentChunk.Embedding` is `vector(768)`, fixed to `nomic-embed-text`'s output dimension
-  and validated in the domain constructor, not just the schema. Each chunk also stores which
-  `EmbeddingModel` produced it — per-chunk, not a single global setting — so a future model
-  change doesn't silently mix incompatible vectors. See
-  [ADR 0013](decisions/0013-document-chunks-and-worker-wiring.md).
+- `DocumentChunk.Embedding` is `vector(1024)`, fixed to `bge-m3`'s output dimension (was
+  `vector(768)`/`nomic-embed-text` until [ADR 0026](decisions/0026-multilingual-embedding-model.md)
+  swapped it for real cross-lingual retrieval) and validated in the domain constructor, not
+  just the schema. Each chunk also stores which `EmbeddingModel` produced it — per-chunk, not
+  a single global setting — so a future model change doesn't silently mix incompatible
+  vectors. See [ADR 0013](decisions/0013-document-chunks-and-worker-wiring.md).
 - `DocumentChunks.Embedding` has an HNSW index (`vector_cosine_ops`, matching the `<=>`
   operator used in search) rather than `ivfflat`, because the table starts empty and grows
   incrementally — `ivfflat`'s k-means cluster build needs representative data at
@@ -211,7 +212,7 @@ Key tunables and their current values:
 | `Worker:PollingIntervalSeconds` | 5 | how often the Worker checks for new jobs |
 | `Worker:MaxRetries` | 3 | retries *after* the initial attempt — a job can run up to 4 times before `Failed` |
 | `Rag:DefaultTopK` / `Rag:MaxTopK` | 5 / 50 | chunks retrieved per search/chat request |
-| `Rag:MaxRelevantDistance` | 0.33 | cosine distance cutoff, empirically calibrated (ADR 0022) |
+| `Rag:MaxRelevantDistance` | 0.5 | cosine distance cutoff, empirically calibrated (ADR 0022, recalibrated for `bge-m3` in ADR 0026) |
 | `Jwt:ExpirationMinutes` | see `appsettings*.json` | token lifetime; no revocation list exists |
 
 ## Deployment (Docker Compose)

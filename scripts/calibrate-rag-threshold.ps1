@@ -31,14 +31,22 @@ param(
     [string]$ApiBaseUrl = "http://localhost:5136",
     [string]$Email = "dev@smartdoc.local",
     [string]$Password = "smartdoc_dev_password",
-    [string]$PdfsDir = "$PSScriptRoot/../calibration/pdfs",
-    [string]$QuestionsFile = "$PSScriptRoot/../calibration/questions.json",
-    [string]$ResultsDir = "$PSScriptRoot/../calibration/results",
+    [string]$PdfsDir,
+    [string]$QuestionsFile,
+    [string]$ResultsDir,
     [int]$TopK = 15,
     [int]$PollIntervalSeconds = 5,
     [int]$PollTimeoutSeconds = 900,
     [switch]$SkipUpload
 )
+
+# $PSScriptRoot is empty while the param() defaults above are being evaluated - a known
+# Windows PowerShell 5.1 quirk with [CmdletBinding()] (fixed in PowerShell 7/pwsh, not
+# installed on this box). Resolving these here instead, once $PSScriptRoot is actually
+# populated, is what makes the script work regardless of which PowerShell runs it.
+if (-not $PdfsDir) { $PdfsDir = "$PSScriptRoot/../calibration/pdfs" }
+if (-not $QuestionsFile) { $QuestionsFile = "$PSScriptRoot/../calibration/questions.json" }
+if (-not $ResultsDir) { $ResultsDir = "$PSScriptRoot/../calibration/results" }
 
 $ErrorActionPreference = "Stop"
 

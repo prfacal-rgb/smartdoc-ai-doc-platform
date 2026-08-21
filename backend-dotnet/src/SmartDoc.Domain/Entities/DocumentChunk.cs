@@ -3,11 +3,11 @@ namespace SmartDoc.Domain.Entities;
 public class DocumentChunk
 {
     /// <summary>
-    /// Fixed at 768 (nomic-embed-text) — see ADR 0010/0012. Changing embedding models to a
-    /// different dimension is not a config swap: it requires a schema migration on this
-    /// column plus re-embedding every existing chunk.
+    /// Fixed at 1024 (bge-m3) — see ADR 0026 (was 768/nomic-embed-text until then, ADR
+    /// 0010/0012). Changing embedding models to a different dimension is not a config swap:
+    /// it requires a schema migration on this column plus re-embedding every existing chunk.
     /// </summary>
-    public const int EmbeddingDimensions = 768;
+    public const int EmbeddingDimensions = 1024;
 
     public const int MaxEmbeddingModelLength = 100;
 

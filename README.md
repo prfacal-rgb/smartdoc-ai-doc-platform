@@ -123,7 +123,7 @@ explicit post-MVP evolution rather than pulled in speculatively.
 **Provider abstraction for LLM/embeddings.** Neither the LLM nor the embedding model is
 hardcoded into business logic — `IEmbeddingProvider`/`ILlmProvider` (and their Python
 equivalents) sit behind the AI service's routers, selected by config. Currently: Groq for
-generation, Ollama (local, `nomic-embed-text`) for embeddings — chosen for cost, not locked
+generation, Ollama (local, `bge-m3`) for embeddings — chosen for cost, not locked
 in by design. Swapping either is a new provider implementation plus config, not a rewrite of
 `/generate` or `/embed`'s callers. (The abstraction exists; running multiple providers
 concurrently does not — that's out of scope by design, see
@@ -147,8 +147,8 @@ Question → embed(question) → cosine similarity search (pgvector, HNSW)
 | Chunk size | 500 tokens | Estimated with `tiktoken` (`cl100k_base`) as a provider-agnostic approximation — no embedding model here actually uses that tokenizer. |
 | Chunk overlap | 75 tokens | Chunks never cross a page boundary, even mid-overlap — needed so citations can always say "page N" unambiguously. |
 | Top-K | 5 (default), configurable up to 50 | Set per-request on `POST /api/search`/`POST /api/chat`. |
-| Similarity threshold | `0.33` (cosine distance) | Empirically calibrated, not a guess — see [ADR 0022](docs/decisions/0022-rag-threshold-calibration.md): 45 ground-truth questions across 6 real PDFs, run through `/api/search` directly to get raw distances. Chosen for zero false positives among out-of-scope questions at 91.7% recall on in-scope ones — a wrong citation was judged more costly than an extra "I don't have enough information" refusal. |
-| Embedding model | `nomic-embed-text` (768 dim) | Via Ollama, running on the host — the dimension is fixed in the schema; changing models means a migration and re-embedding everything, not a config swap. |
+| Similarity threshold | `0.5` (cosine distance) | Empirically calibrated, not a guess — see [ADR 0022](docs/decisions/0022-rag-threshold-calibration.md)/[ADR 0026](docs/decisions/0026-multilingual-embedding-model.md): 53 ground-truth questions (including cross-lingual pairs and an open-ended/philosophical negative) across 7 real PDFs, run through `/api/search` directly to get raw distances. Zero false positives among 10 out-of-scope questions at 95.3% recall on in-scope ones — precision prioritized over recall, same trade-off `nomic-embed-text`'s original 0.33 made (at 91.7% recall), just recalibrated for `bge-m3`'s different distance distribution. |
+| Embedding model | `bge-m3` (1024 dim) | Via Ollama, running on the host — the dimension is fixed in the schema; changing models means a migration and re-embedding everything, not a config swap. Not `nomic-embed-text` (768 dim, used until [ADR 0026](docs/decisions/0026-multilingual-embedding-model.md)) — that model is mostly English-trained and failed cross-lingual retrieval outright (a Spanish question couldn't find an on-topic English document even in the top 50 candidates); `bge-m3` is trained specifically for multilingual/cross-lingual dense retrieval across 100+ languages. |
 | Generation model | `openai/gpt-oss-120b` via Groq | Chosen over local Ollama for `/generate` specifically: Ollama measured 40s+ for a short completion (~0.87 tok/s on a 14B model) vs. Groq's ~0.5s — unacceptable for a synchronous, user-facing endpoint, even though Ollama's latency is fine for `/embed`, which runs in the background. |
 
 If nothing clears the threshold, `.NET` returns "insufficient context" without ever calling
@@ -174,7 +174,7 @@ architecture.pdf — page 14
 | **Object storage** | MinIO (S3-compatible) |
 | **Auth** | JWT (single seed user — see [Known limitations](#known-limitations)) |
 | **LLM** | Groq (`openai/gpt-oss-120b`), behind `ILlmProvider` |
-| **Embeddings** | Ollama (`nomic-embed-text`, local), behind `IEmbeddingProvider` |
+| **Embeddings** | Ollama (`bge-m3`, local, multilingual), behind `IEmbeddingProvider` |
 | **Logging** | Serilog (.NET), structured JSON file logging (Python) — see [Observability](#observability) |
 | **Testing** | xUnit + FluentAssertions (.NET), pytest (Python) |
 | **Orchestration** | Docker Compose |
@@ -182,7 +182,7 @@ architecture.pdf — page 14
 ## Getting started
 
 Requirements: Docker Desktop, and [Ollama](https://ollama.com) running on the host machine
-with `nomic-embed-text` pulled (`ollama pull nomic-embed-text`) — Ollama isn't containerized
+with `bge-m3` pulled (`ollama pull bge-m3`) — Ollama isn't containerized
 here since it benefits from direct GPU/host access, see
 [ADR 0011](docs/decisions/0011-ai-service-scaffold.md). A free
 [Groq API key](https://console.groq.com/keys) for generation.

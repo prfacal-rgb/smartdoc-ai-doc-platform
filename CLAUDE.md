@@ -481,7 +481,31 @@ Completado:
   `Ready` → preguntar → citas correctas) con las mismas formas de request que usa el
   cliente. `dotnet build`/`tsc -b`/`npm run build` sin errores, 122 tests .NET + 23 de
   `ai-service` sin cambios de comportamiento. Confirmado visualmente por el usuario en el
-  browser real (la extensión de Claude in Chrome no llegó a conectarse en la sesión).
+  browser real (la extensión de Claude in Chrome no llegó a conectarse en la sesión) — y ese
+  mismo uso real encontró el bug de fondo que dio lugar a ADR 0026 (ver abajo).
+- **Modelo de embeddings multilingüe: `nomic-embed-text` → `bge-m3` (ver ADR 0026).**
+  Encontrado usando el dashboard real: una pregunta en español sobre un PDF en inglés recién
+  subido devolvía "no tengo información" citando una novela sin relación. Diagnosticado con
+  `/api/search` (mismas herramientas que ADR 0022) contra 4 pares documento/idioma —
+  `nomic-embed-text` (mayormente inglés) no encontraba documentos en inglés para preguntas
+  en español ni en el top 50, aunque sí funcionaba razonablemente al revés (inglés→español,
+  degradado pero funcional). `bge-m3` (BAAI, 1024 dim, multilingüe real) lo resuelve.
+  Cambio de dimensión (768→1024) requirió migration a mano (Postgres no puede castear entre
+  dimensiones distintas de `vector`, ni alterar una columna con un índice HNSW dependiente
+  todavía vivo — drop índice → `DELETE FROM DocumentChunks` → `ALTER COLUMN TYPE` → recrear
+  índice) y reprocesar los 7 documentos del corpus reusando el pipeline real (Worker), no un
+  script ad-hoc. Timeout de `/embed` subido de 600s a 1800s — medido, no adivinado: el manual
+  Fortinet (409 chunks) tardó 750s (12.5 min) reales con `bge-m3`, ~2.6-3x más lento que
+  `nomic-embed-text` en la misma comparación. `Rag:MaxRelevantDistance` recalibrado de 0.33 a
+  0.5 (corpus de calibración ampliado de 45 a 53 preguntas: 3 para el 7º documento del
+  corpus, 4 cross-lingual para validar el fix explícitamente, 1 negativa abstracta/filosófica
+  que expuso un hueco real en el set de negativas original, todas concretas hasta ahora) —
+  95.3% recall con cero falsos positivos, mejor que el 91.7% original. Encontrado y corregido
+  de paso: bug preexistente en `calibrate-rag-threshold.ps1` (`$PSScriptRoot` vacío en
+  defaults de `param()` bajo `[CmdletBinding()]`, quirk de Windows PowerShell 5.1 sin
+  `pwsh`), y un `.env` local de `ai-service` con el modelo viejo hardcodeado que rompía sus
+  tests corridos fuera de Docker. 122 tests .NET + 23 `ai-service` en verde. Verificado con
+  la pregunta real que disparó todo: ahora responde citando el documento correcto.
 
 Decisiones conscientes, no pendientes olvidados:
 - **Endpoints de `Users`** (registro, cambio de password) — deliberadamente fuera de scope
@@ -491,5 +515,6 @@ Decisiones conscientes, no pendientes olvidados:
   contra ninguna lista — sin logout real; aceptable para un solo seed user (ver ADR 0017).
 
 Próximo paso: Fase 5 cerrada. Fase 6 (Frontend) en progreso — dashboard inicial confirmado
-visualmente por el usuario (ADR 0025). Queda como decisión abierta si seguir puliendo el
-dashboard o darlo por suficiente para portfolio.
+visualmente por el usuario (ADR 0025), y el bug de retrieval multilingüe que ese mismo uso
+encontró ya está resuelto y recalibrado (ADR 0026). Queda como decisión abierta si seguir
+puliendo el dashboard o darlo por suficiente para portfolio.
